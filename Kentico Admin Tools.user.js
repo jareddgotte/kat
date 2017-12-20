@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kentico Admin Tools
 // @namespace    http://jaredgotte.com
-// @version      2.7
+// @version      2.8
 // @description  Helps with working in the Kentico /admin interface. Depends on the Kentico Admin Tools Helper userscript. List of compatible Kentico versions can be found in the `listOfCompatibleKenticoVersions` variable defined below.
 // @author       Jared Gotte
 // @match        http://*.tamu.edu/Admin/*
@@ -32,7 +32,7 @@
       * Add a button to automatically and safely deselect all (from the starting/main page, as well)
       * When able, automatically change the item listing dropdown to 100 from 10 (and/or move the dropdown to the top)
   * In the CSS stylesheet (and Smart search) app, add a button -- similar to the "Current Site" one for Sites -- to where it grabs the site's abbreviation within the parenthesis and filters based on that (won't work for all sites)
-  * Use the "Last selected sites" feature/logic for past searches in custom tables, page templates and other apps
+  * Use the "Last selected sites" feature/logic for past searches in css stylesheets, custom tables, page templates and other apps
   * For Settings:
       * Update from latest cookie each time it's opened/closed
       * Add more options, like:
@@ -43,8 +43,6 @@
 /*
 # List of Confirmed Bugs:
   * Firefox: Does not load frames in the same order as Chrome. This leads to the frame input keyup events not triggering properly within the widget properties dialog.
-  * Users -> edit -> Sites tab -> Add sites does not inherit Feature 6
-  * CSS stylesheets -> edit stylesheet -> Sites tab -> Add sites does not inherit Feature 6
 */
 
 /*
@@ -87,6 +85,7 @@
         * Bug fixes:
             * Added web part properties modal closure support in Page templates app
             * Improved katSettings cookie setting logic (to support cross-tab changes and dealing with overriding variables)
+  2.8 | * Adapted the "Select site" logic with the "Select sites" dialog
 */
 
 jQuery(function ($, undefined) {
@@ -745,187 +744,192 @@ jQuery(function ($, undefined) {
                 //console.log($this.contents());
                 if (debugF) console.log('  (modal iframe loaded)');
 
-                // "Select site" modal
+                // "Select site" or "Select sites" modal
                 if ($this.attr('name') === 'SelectionDialog') {
                     var $children = $('body', $this.contents()).children();
 
                     if ($children.length > 0) {
-                        if (katSettings.feature6 && $('#m_pt_headTitle', $children).text().trim() === 'Select site') { // enableCurrentSiteButtonHelperExtension
-                            if (debugF) console.log('    (in "Select site" modal)');
+                        if (katSettings.feature6) {
+                            var headTitle = $('#m_pt_headTitle', $children).text().trim();
+                            var inSelectSite = (headTitle === 'Select site');
 
-                            // adds our 'current site' or 'reset' button next to search and binds the click event to it
-                            var addButtons = function () {
-                                var $contents = $this.contents();
-                                var nameVal = trimSiteName($('#m_c_selectionDialog_txtSearch', $contents).val());
+                            if (inSelectSite || headTitle === 'Select sites') { // enableCurrentSiteButtonHelperExtension
+                                if (debugF) console.log('    (in "' + headTitle + '" modal)');
 
-                                // push selected site name (from normal table listing) to our lastSelectedSites array on click
-                                $('#m_c_selectionDialog_uniGrid_v', $this.contents()).on('click', '.SelectableItem', function (e) {
-                                    loadLatestLastSelectedSitesCookie();
-                                    //console.log('lastSelectedSites before', lastSelectedSites.slice()); // debug
-
-                                    // push site name
-                                    lastSelectedSites.push(trimSiteName(e.target.textContent));
-
-                                    // truncate list (if over 100 elements)
-                                    if (lastSelectedSites.length > 100) {
-                                        lastSelectedSites = lastSelectedSites.slice(-100);
-                                    }
-
-                                    // filter out duplicates (saving the last occurrence)
-                                    lastSelectedSites = lastSelectedSites.filter((el, i, ar) => ar.lastIndexOf(el) === i);
-                                    //console.log('lastSelectedSites after', lastSelectedSites); // debug
-
-                                    // update cookie
-                                    setCookie(lastSelectedSitesCookieName, JSON.stringify(lastSelectedSites), 365);
-                                });
-
-                                // if name field is current site or last selected site
-                                //   select the site
-                                if (nameVal === currentSiteName() || nameVal === lastSelectedSite) {
-                                    var divArr = $('#m_c_selectionDialog_uniGrid_v tr .SelectableItem', $contents);
-                                    for (var i = 0, len = divArr.length, $v; i < len; ++i) {
-                                        $v = $(divArr[i]);
-                                        if (trimSiteName($v.text()) === nameVal) {
-                                            $v.click();
-                                            // exit addButtons(); don't bother drawing buttons since clicking closes out of dialog/modal
-                                            return;
-                                        }
-                                    }
-                                }
-
-                                // add the buttons
-                                var $buttonRow = $('#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell', $contents);
-                                // if name field is not current site
-                                //   add current site button and attach click event
-                                if (nameVal !== currentSiteName()) {
-                                    $buttonRow
-                                        .prepend('<button type="button" value="Current Site" id="searchCurrentSite" class="btn btn-secondary">Current Site</button>')
-                                        .on('click', 'button#searchCurrentSite', function () {
-                                        if (debugF || debugA) console.log('    "Current Site" button clicked in "Select site" dialog');
-
-                                        // insert name of current site into the 'Name' input
-                                        $('#m_c_selectionDialog_txtSearch', $contents).val(currentSiteName());
-
-                                        // click Search
-                                        $('#m_c_selectionDialog_btnSearch', $contents).click();
-                                    });
-                                }
-                                // and if name field is not empty
-                                //   add reset button and attach click event
-                                if (nameVal.length !== 0) {
-                                    $buttonRow
-                                        .prepend('<button type="button" value="Reset" id="resetName" class="btn btn-default">Reset</button>')
-                                        .on('click', 'button#resetName', function () {
-                                        if (debugF || debugA) console.log('    "Reset" button clicked in "Select site" dialog');
-
-                                        // insert name of current site into the 'Name' input
-                                        $('#m_c_selectionDialog_txtSearch', $contents).val('');
-
-                                        // click Search
-                                        $('#m_c_selectionDialog_btnSearch', $contents).click();
-                                    });
-                                }
-                            };
-
-                            // adds our last selected sites to the table html
-                            var lastSelectedHTML = function (tableWidth) {
-                                var itemsPerPage = $('#m_c_selectionDialog_uniGrid_p_drpPageSize', $children).val() || 10;
-                                var html = '';
-                                var leftOffset = tableWidth - 17;
-
-                                // build html table rows
-                                for (var len = lastSelectedSites.length, i = len - 1, max = Math.min(len, itemsPerPage), count = 0, siteName; count < max; --i, ++count) {
-                                    if (i < 0) break;
-                                    siteName = lastSelectedSites[i];
-                                    html += '<tr><td><div class="SelectableItem" title="Select &quot;' + siteName + '&quot;">' + siteName + '</div><a role="button" title="Delete &quot;' + siteName + '&quot; from list?" style="left:' + leftOffset + 'px;">×</a></td></tr>';
-                                }
-                                return html;
-                            };
-
-                            // inject last selected sites table
-                            var addLastSelectedSites = function () {
-                                loadLatestLastSelectedSitesCookie();
-
-                                if (lastSelectedSites.length > 0) {
-                                    // generate and inject table HTML
-                                    var divContent = $('#divContent', $children)[0];
-                                    var scrollbarDiff = divContent.offsetWidth - divContent.clientWidth;
-                                    var tableWidth = 275 - scrollbarDiff;
-                                    $('#m_c_selectionDialog_pnlUpdate', $children).prepend('<div id="lastSitesSelect" style="width:' + tableWidth + 'px;"><table class="table"><thead><tr><th>Last selected sites<a role="button" title="Refresh list" style="margin-right:' + scrollbarDiff + 'px"><i class="icon-rotate-double-right"></i></a></th></tr></thead><tbody>' + lastSelectedHTML(tableWidth) + '</tbody></table></div>');
-
-                                    // attach click event for selecting a site from the "Last selected sites" list
+                                // adds our 'current site' or 'reset' button next to search and binds the click event to it
+                                var addButtons = function () {
                                     var $contents = $this.contents();
-                                    $('#lastSitesSelect', $contents).on('click', 'div.SelectableItem', function () {
-                                        if (debugF || debugA) console.log('    "Site" item clicked in "Select site" dialog');
+                                    var nameVal = trimSiteName($('#m_c_selectionDialog_txtSearch', $contents).val());
 
-                                        // record name of selected site to use for addButtons() (so we can auto select it once it gets filtered)
-                                        lastSelectedSite = $(this).text();
-
-                                        // insert name of current site into the 'Name' input
-                                        $('#m_c_selectionDialog_txtSearch', $contents).val(lastSelectedSite);
-
-                                        // click Search
-                                        $('#m_c_selectionDialog_btnSearch', $contents).click();
-                                    });
-
-                                    // attach click events to the refresh and site delete buttons on the "Last selected sites" list
-                                    $('#lastSitesSelect', $contents).on('click', 'a', function () { //div.SelectableItem + a
-                                        var $this = $(this);
-                                        var $prev = $this.prev();
-
+                                    // push selected site name (from normal table listing) to our lastSelectedSites array on click
+                                    if (inSelectSite) $('#m_c_selectionDialog_uniGrid_v', $this.contents()).on('click', '.SelectableItem', function (e) {
                                         loadLatestLastSelectedSitesCookie();
+                                        //console.log('lastSelectedSites before', lastSelectedSites.slice()); // debug
 
-                                        if ($prev.length === 0) {
-                                            if (debugF || debugA) console.log('    "Refresh list" link clicked in "Select site" dialog');
-                                        }
-                                        else {
-                                            if (debugF || debugA) console.log('    "Delete site" link clicked in "Select site" dialog; name[' + $this.parent().text() + ']');
+                                        // push site name
+                                        lastSelectedSites.push(trimSiteName(e.target.textContent));
 
-                                            // remove site from list if it exists
-                                            var i = lastSelectedSites.indexOf($prev.text());
-                                            if (~i) lastSelectedSites.splice(i, 1);
-
-                                            // update cookie
-                                            setCookie(lastSelectedSitesCookieName, JSON.stringify(lastSelectedSites), 365);
+                                        // truncate list (if over 100 elements)
+                                        if (lastSelectedSites.length > 100) {
+                                            lastSelectedSites = lastSelectedSites.slice(-100);
                                         }
 
-                                        // redraw table
-                                        $('#lastSitesSelect tbody', $contents).html(lastSelectedHTML(tableWidth));
+                                        // filter out duplicates (saving the last occurrence)
+                                        lastSelectedSites = lastSelectedSites.filter((el, i, ar) => ar.lastIndexOf(el) === i);
+                                        //console.log('lastSelectedSites after', lastSelectedSites); // debug
+
+                                        // update cookie
+                                        setCookie(lastSelectedSitesCookieName, JSON.stringify(lastSelectedSites), 365);
                                     });
-                                }
-                            };
 
-                            // create and set mutation observer
-                            var $panel = $('#m_c_selectionDialog_pnlUpdate', $children);
-                            if ($panel.length !== 0) {
-                                var observer = new MutationObserver(function (mutations) {
-                                    if (mutations[0].addedNodes.length > 1) {
-                                        addButtons();
-                                        addLastSelectedSites();
+                                    // if in "Select site" and (name field is current site or last selected site)
+                                    //   select the site
+                                    if (inSelectSite && (nameVal === currentSiteName() || nameVal === lastSelectedSite)) {
+                                        var divArr = $('#m_c_selectionDialog_uniGrid_v tr .SelectableItem', $contents);
+                                        for (var i = 0, len = divArr.length, $v; i < len; ++i) {
+                                            $v = $(divArr[i]);
+                                            if (trimSiteName($v.text()) === nameVal) {
+                                                $v.click();
+                                                // exit addButtons(); don't bother drawing buttons since clicking closes out of dialog/modal
+                                                return;
+                                            }
+                                        }
                                     }
-                                });
-                                observer.observe($panel[0], { childList: true });
+
+                                    // add the buttons
+                                    var $buttonRow = $('#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell', $contents);
+                                    // if name field is not current site
+                                    //   add current site button and attach click event
+                                    if (nameVal !== currentSiteName()) {
+                                        $buttonRow
+                                            .prepend('<button type="button" value="Current Site" id="searchCurrentSite" class="btn btn-secondary">Current Site</button>')
+                                            .on('click', 'button#searchCurrentSite', function () {
+                                            if (debugF || debugA) console.log('    "Current Site" button clicked in "' + headTitle + '" dialog');
+
+                                            // insert name of current site into the 'Name' input
+                                            $('#m_c_selectionDialog_txtSearch', $contents).val(currentSiteName());
+
+                                            // click Search
+                                            $('#m_c_selectionDialog_btnSearch', $contents).click();
+                                        });
+                                    }
+                                    // and if name field is not empty
+                                    //   add reset button and attach click event
+                                    if (nameVal.length !== 0) {
+                                        $buttonRow
+                                            .prepend('<button type="button" value="Reset" id="resetName" class="btn btn-default">Reset</button>')
+                                            .on('click', 'button#resetName', function () {
+                                            if (debugF || debugA) console.log('    "Reset" button clicked in "' + headTitle + '" dialog');
+
+                                            // insert name of current site into the 'Name' input
+                                            $('#m_c_selectionDialog_txtSearch', $contents).val('');
+
+                                            // click Search
+                                            $('#m_c_selectionDialog_btnSearch', $contents).click();
+                                        });
+                                    }
+                                };
+
+                                // adds our last selected sites to the table html
+                                var lastSelectedHTML = function (tableWidth) {
+                                    var itemsPerPage = $('#m_c_selectionDialog_uniGrid_p_drpPageSize', $children).val() || 10;
+                                    var html = '';
+                                    var leftOffset = tableWidth - 17;
+
+                                    // build html table rows
+                                    for (var len = lastSelectedSites.length, i = len - 1, max = Math.min(len, itemsPerPage), count = 0, siteName; count < max; --i, ++count) {
+                                        if (i < 0) break;
+                                        siteName = lastSelectedSites[i];
+                                        html += '<tr><td><div class="SelectableItem" title="Select &quot;' + siteName + '&quot;">' + siteName + '</div><a role="button" title="Delete &quot;' + siteName + '&quot; from list?" style="left:' + leftOffset + 'px;">×</a></td></tr>';
+                                    }
+                                    return html;
+                                };
+
+                                // inject last selected sites table
+                                var addLastSelectedSites = function () {
+                                    loadLatestLastSelectedSitesCookie();
+
+                                    if (lastSelectedSites.length > 0) {
+                                        // generate and inject table HTML
+                                        var divContent = $('#divContent', $children)[0];
+                                        var scrollbarDiff = divContent.offsetWidth - divContent.clientWidth;
+                                        var tableWidth = 275 - scrollbarDiff;
+                                        $('#m_c_selectionDialog_pnlUpdate', $children).prepend('<div id="lastSitesSelect" style="width:' + tableWidth + 'px;"><table class="table"><thead><tr><th>Last selected sites<a role="button" title="Refresh list" style="margin-right:' + scrollbarDiff + 'px"><i class="icon-rotate-double-right"></i></a></th></tr></thead><tbody>' + lastSelectedHTML(tableWidth) + '</tbody></table></div>');
+
+                                        // attach click event for selecting a site from the "Last selected sites" list
+                                        var $contents = $this.contents();
+                                        $('#lastSitesSelect', $contents).on('click', 'div.SelectableItem', function () {
+                                            if (debugF || debugA) console.log('    "Site" item clicked in "' + headTitle + '" dialog');
+
+                                            // record name of selected site to use for addButtons() (so we can auto select it once it gets filtered)
+                                            lastSelectedSite = $(this).text();
+
+                                            // insert name of current site into the 'Name' input
+                                            $('#m_c_selectionDialog_txtSearch', $contents).val(lastSelectedSite);
+
+                                            // click Search
+                                            $('#m_c_selectionDialog_btnSearch', $contents).click();
+                                        });
+
+                                        // attach click events to the refresh and site delete buttons on the "Last selected sites" list
+                                        $('#lastSitesSelect', $contents).on('click', 'a', function () { //div.SelectableItem + a
+                                            var $this = $(this);
+                                            var $prev = $this.prev();
+
+                                            loadLatestLastSelectedSitesCookie();
+
+                                            if ($prev.length === 0) {
+                                                if (debugF || debugA) console.log('    "Refresh list" link clicked in "' + headTitle + '" dialog');
+                                            }
+                                            else {
+                                                if (debugF || debugA) console.log('    "Delete site" link clicked in "' + headTitle + '" dialog; name[' + $this.parent().text() + ']');
+
+                                                // remove site from list if it exists
+                                                var i = lastSelectedSites.indexOf($prev.text());
+                                                if (~i) lastSelectedSites.splice(i, 1);
+
+                                                // update cookie
+                                                setCookie(lastSelectedSitesCookieName, JSON.stringify(lastSelectedSites), 365);
+                                            }
+
+                                            // redraw table
+                                            $('#lastSitesSelect tbody', $contents).html(lastSelectedHTML(tableWidth));
+                                        });
+                                    }
+                                };
+
+                                // create and set mutation observer
+                                var $panel = $('#m_c_selectionDialog_pnlUpdate', $children);
+                                if ($panel.length !== 0) {
+                                    var observer = new MutationObserver(function (mutations) {
+                                        if (mutations[0].addedNodes.length > 1) {
+                                            addButtons();
+                                            addLastSelectedSites();
+                                        }
+                                    });
+                                    observer.observe($panel[0], { childList: true });
+                                }
+
+                                // add current site button
+                                addButtons();
+
+                                // inject last selected table
+                                addLastSelectedSites();
+
+                                // add styles
+                                var iframeStyles = '';
+                                iframeStyles += '#lastSitesSelect { background:#fff;position:absolute;right:0;border-left:1px solid #e5e5e5;overflow:hidden; }';
+                                iframeStyles += '#lastSitesSelect .table { margin-bottom:0; }';
+                                iframeStyles += '#lastSitesSelect .table thead tr a { float:right; }';
+                                iframeStyles += '#lastSitesSelect .table thead tr a:hover i { color:#000; }';
+                                iframeStyles += '#lastSitesSelect .table tbody tr td { position:relative; }';
+                                iframeStyles += '#lastSitesSelect .table tbody tr td a { position:absolute;background:#fff;top:0;padding:6px 3px;color:#b12628;border-left:1px solid #e5e5e5;text-decoration:none; }';
+                                iframeStyles += '#lastSitesSelect .table tbody tr td a:hover { border-left:1px solid #b12628;background:#b12628;color:#fff; }';
+                                iframeStyles += '#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell { padding-right:4px; }';
+                                iframeStyles += '#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell #resetName,';
+                                iframeStyles += '#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell #searchCurrentSite { margin-right:4px; }';
+                                addStyles($('head', $this.contents()), iframeStyles);
                             }
-
-                            // add current site button
-                            addButtons();
-
-                            // inject last selected table
-                            addLastSelectedSites();
-
-                            // add styles
-                            var iframeStyles = '';
-                            iframeStyles += '#lastSitesSelect { background:#fff;position:absolute;right:0;border-left:1px solid #e5e5e5;overflow:hidden; }';
-                            iframeStyles += '#lastSitesSelect .table { margin-bottom:0; }';
-                            iframeStyles += '#lastSitesSelect .table thead tr a { float:right; }';
-                            iframeStyles += '#lastSitesSelect .table thead tr a:hover i { color:#000; }';
-                            iframeStyles += '#lastSitesSelect .table tbody tr td { position:relative; }';
-                            iframeStyles += '#lastSitesSelect .table tbody tr td a { position:absolute;background:#fff;top:0;padding:6px 3px;color:#b12628;border-left:1px solid #e5e5e5;text-decoration:none; }';
-                            iframeStyles += '#lastSitesSelect .table tbody tr td a:hover { border-left:1px solid #b12628;background:#b12628;color:#fff; }';
-                            iframeStyles += '#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell { padding-right:4px; }';
-                            iframeStyles += '#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell #resetName,';
-                            iframeStyles += '#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell #searchCurrentSite { margin-right:4px; }';
-                            addStyles($('head', $this.contents()), iframeStyles);
                         }
                     }
                 }
