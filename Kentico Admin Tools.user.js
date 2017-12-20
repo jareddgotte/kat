@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kentico Admin Tools
 // @namespace    http://jaredgotte.com
-// @version      2.3
+// @version      2.4
 // @description  Helps with working in the Kentico /admin interface. Depends on the Kentico Admin Tools Helper userscript. List of compatible Kentico versions can be found in the `listOfCompatibleKenticoVersions` variable defined below.
 // @author       Jared Gotte
 // @match        http://*.tamu.edu/Admin/*
@@ -69,6 +69,7 @@
         * Added ability to store/retrieve "last selected sites" list via a cookie
         * Added ability to keep the "last selected sites" list cookie up-to-date
         * Added ability to easily override settings
+  2.4 | * Bug fixes
 */
 
 jQuery(function ($, undefined) {
@@ -112,7 +113,7 @@ jQuery(function ($, undefined) {
     // forces Feature 3 to be enabled/disabled when defined
     //var enableSiteListDropdownHelperOverride = true;
     // forces Feature 4 to be enabled/disabled when defined
-    //var enableBreadcrumbMiddleClickHelperOverride = false;
+    //var enableBreadcrumbMiddleClickHelperOverride = true;
     // forces Feature 5 to be enabled/disabled when defined
     //var enableCurrentSiteButtonHelperOverride = true;
     // forces Feature 6 to be enabled/disabled when defined
@@ -144,7 +145,8 @@ jQuery(function ($, undefined) {
         undef: 'N/A',
         m_c_layoutElem_cmsdesktop: 1,
         m_c_plc_lt_ctl00_ObjectTreeMenu_layoutElem_paneContentTMain: 2,
-        m_c_plc_lt_ctl00_HorizontalTabs_l_c: 3
+        m_c_plc_lt_ctl00_HorizontalTabs_l_c: 3,
+        m_c_layoutElem_contentview: 4 // Pages
     };
     // mapping of hash id's to my own designated app id's
     var hashAppMap = {
@@ -154,7 +156,8 @@ jQuery(function ($, undefined) {
         '#02cded6b-aa35-4a82-a5f3-e5a5fe82e58b': 1, // Settings
         '#5576826f-328b-4b53-9f4b-e877fabd4d63': 2, // Sites
         '#ef314079-8dbb-4273-bed1-a4af14d0cbf7': 3, // Widgets
-        '#e7c58bcc-a132-40cf-b587-c11fbf146963': 4 // Event log
+        '#e7c58bcc-a132-40cf-b587-c11fbf146963': 4, // Event log
+        '#95a82f36-9c40-45f0-86f1-39aa44db9a77': 5 // Pages
     };
 
     // (Feature 6,7)
@@ -275,7 +278,7 @@ jQuery(function ($, undefined) {
         var d = new Date();
         d.setTime(d.getTime() + (exdays * 24 * 60 * 60 * 1000));
         var expires = 'expires=' + d.toUTCString();
-        document.cookie = cname + '=' + cvalue + ';' + expires + ';path=/;domain=.tamu.edu';
+        document.cookie = cname + '=' + cvalue + ';' + expires + ';path=/Admin;domain=.tamu.edu';
     }
 
     // gets cookie
@@ -305,7 +308,7 @@ jQuery(function ($, undefined) {
     // (Feature 6,7)
     // spam handler for bruteForceLooper(), so we aren't executing overlapping loops
     function bruteForceLooperHelper () {
-        if (debugV) console.log('bruteForceLooperIterator', bruteForceLooperIterator);
+        //console.log('bruteForceLooperIterator', bruteForceLooperIterator);
         bruteForceLooperIterator = 0;
         bruteForceLooper();
         clearInterval(bruteForceLooperHelper.timeout);
@@ -519,6 +522,13 @@ jQuery(function ($, undefined) {
                     SiteListDropdownHelper(hashId, $this);
                 }
                 break;
+            case 5:
+                if (ifid === 1) {
+                    if (debugF) console.log('  (Pages app detected)');
+                    // (Feature 6,7)
+                    bruteForceLooperHelper();
+                }
+                break;
             default:
                 console.log('! Unexpected hash passed to checkHash(); hash[' + hash + ']; hashId[' + hashId + ']');
                 break;
@@ -538,22 +548,24 @@ jQuery(function ($, undefined) {
     // recursively applies event listeners to all containing iframes
     function applyLoadToIframes ($body, lvl, ch) {
         if (debugF) console.log('  '.repeat(lvl - 1) + '# attempting aLTI; lvl[' + lvl + ']; ch[' + ch + ']');
+        $body = $($body);
 
         // add iframe load event listener (with capture) to body so we can see iframe load events otherwise not capturable by our $.on('load') listener below
         if ($body.length === 0) console.log('  ! Warning: Unexpected $body size');
         else $body[0].addEventListener('load', function (e) {
             //console.log('realLoad', e);
-            if (e.target.tagName === 'IFRAME') {
-                var tar = e.target;
+            var tar = e.target;
+            if (tar.tagName === 'IFRAME' && tar.name !== 'QuickInsertImage') {
                 var $this = $(tar);
-                var ifid = iframeMap[$this.attr('id')] || $this.attr('id');
+                var ifid = iframeMap[tar.id] || tar.id;
                 if (debugF) console.log('# aLTI realLoaded iframe; lvl[' + lvl + ']; ifid[' + ifid + ']');
                 if (debugF && debugV) console.log('  ', tar);
 
                 // recursively apply on triggered event
-                //applyLoadToIframes($('body', $this.contents()), lvl + 1, 'delayed');
+                applyLoadToIframes($('body', $this.contents()), lvl + 1, 'delayed');
 
                 // ensure things happen after iframes load
+                bruteForceLooperHelper();
                 $this.ready(function () {
                     bruteForceLooperHelper();
                 });
@@ -751,6 +763,7 @@ jQuery(function ($, undefined) {
                 applyLoadToIframes($('body', $v.contents()), lvl + 1, 'delayed');
 
                 // ensure things happen after iframes load
+                bruteForceLooperHelper();
                 $this.ready(function () {
                     bruteForceLooperHelper();
                 });
