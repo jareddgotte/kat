@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kentico Admin Tools
 // @namespace    http://jaredgotte.com
-// @version      2.8
+// @version      2.9
 // @description  Helps with working in the Kentico /admin interface. Depends on the Kentico Admin Tools Helper userscript. List of compatible Kentico versions can be found in the `listOfCompatibleKenticoVersions` variable defined below.
 // @author       Jared Gotte
 // @match        http://*.tamu.edu/Admin/*
@@ -38,6 +38,7 @@
       * Add more options, like:
           * How many last sites get listed
   * Able to edit a user straight from the Roles app
+  * Mass editor "disable" and "re-enable" for content freeze situations
 */
 
 /*
@@ -86,6 +87,7 @@
             * Added web part properties modal closure support in Page templates app
             * Improved katSettings cookie setting logic (to support cross-tab changes and dealing with overriding variables)
   2.8 | * Adapted the "Select site" logic with the "Select sites" dialog
+  2.9 | * Added support for Kentico 11.0
 */
 
 jQuery(function ($, undefined) {
@@ -187,7 +189,8 @@ jQuery(function ($, undefined) {
     var listOfCompatibleKenticoVersions = [
         '9.0.48',
         '9.0.49',
-        '9.0.50'
+        '9.0.50',
+        '11.0'
     ];
 
     // (Cookies)
