@@ -8,6 +8,18 @@ Each script's changelog is located inside their .js file's comment header.
 
 ---
 
+## Installation:
+1. Download userscripts and install them into your browser of choice
+2. Edit them and change their first `@match` path to point to the domain you're logging into with the Kentico Admin interface
+3. Save and try it out by logging into /admin
+
+## Usage:
+You can see the available settings to toggle by clicking the gear icon that now appears at the top-right of the admin header toolbar.
+
+If you're interested, change the `debugF` value to `true` in the "Kentico Admin Tools" userscript and read the browser's developer console output while browsing through the /admin pages.
+
+---
+
 Up to version 3.0 of KAT and 1.2 of the Helper scripts were not kept in a git repo.
 
 Here are their estimated last modified dates:
