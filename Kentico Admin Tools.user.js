@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         Kentico Admin Tools
 // @namespace    http://jaredgotte.com
-// @version      2.2
+// @version      2.3
 // @description  Helps with working in the Kentico /admin interface. Depends on the Kentico Admin Tools Helper userscript. List of compatible Kentico versions can be found in the `listOfCompatibleKenticoVersions` variable defined below.
 // @author       Jared Gotte
 // @match        http://*.tamu.edu/Admin/*
 // @match        https://*.tamu.edu/Admin/*
 // @grant        none
 // @require      http://code.jquery.com/jquery-3.2.1.min.js
+// @run-at       document-start
 // ==/UserScript==
 
 // remove unnecessary warnings
@@ -29,7 +30,11 @@
 # List of Future Ideas:
   * While in the Site Export wizard, automatically change the item listing dropdown to 100 from 10 (or at least move the dropdown to the top)
   * In the CSS stylesheet (and Smart search) app, add a button -- similar to the "Current Site" one for Sites -- to where it grabs the site's abbreviation within the parenthesis and filters based on that (won't work for all sites)
-  * Save/load the "Last selected sites" to/from cookies
+  * For Settings:
+      * Create custom show/hide logic for dropdown/expand
+      * Ensure latest settings are loaded (via cookie)
+      * Add more options
+  * Add "refresh/update" button to the "last selected sites" table
 */
 
 /*
@@ -59,6 +64,11 @@
   2.2 | * Added ability to save/load settings from cookies
         * Added way to toggle settings from the admin bar
         * Added styles
+  2.3 | * Bug fixes
+        * Added ability to delete sites from "last selected sites" list
+        * Added ability to store/retrieve "last selected sites" list via a cookie
+        * Added ability to keep the "last selected sites" list cookie up-to-date
+        * Added ability to easily override settings
 */
 
 jQuery(function ($, undefined) {
@@ -70,13 +80,13 @@ jQuery(function ($, undefined) {
     // # User defined variables
     // (Debug message switches)
     // prints out basic debug messages to console.log when true
-    var debug = false;
+    var debug  = false;
     // prints out verbose debug messages to console.log when true
     var debugV = false;
     // prints out iframe related debug messages to console.log when true
     var debugF = false;
 
-    // (Feature toggling) | Note: these get overwritten by cookie values
+    // (Feature toggling) | NOTE: These are just the default settings and they get overwritten by cookie values after the first time a user loads this script
     // enables Feature 1 when true
     var enableKenticoVersionDetection = true; // katSettings.feature1
     // enables Feature 2 when true
@@ -94,30 +104,29 @@ jQuery(function ($, undefined) {
     // enables Feature 8 when true
     var enableSiteListDropdownAutoHelper = true; // katSettings.feature8
 
-    var katSettings;
-    // get cookie
-    var settingsCookie = getCookie('PITOWebCMS_KATSettings');
-    //console.log('settingsCookie len', settingsCookie.length);
+    // (Feature toggling manual overrides)
+    // forces Feature 1 to be enabled/disabled when defined
+    //var enableKenticoVersionDetectionOverride = true;
+    // forces Feature 2 to be enabled/disabled when defined
+    //var enableModalClosingHelperOverride = true;
+    // forces Feature 3 to be enabled/disabled when defined
+    //var enableSiteListDropdownHelperOverride = true;
+    // forces Feature 4 to be enabled/disabled when defined
+    //var enableBreadcrumbMiddleClickHelperOverride = false;
+    // forces Feature 5 to be enabled/disabled when defined
+    //var enableCurrentSiteButtonHelperOverride = true;
+    // forces Feature 6 to be enabled/disabled when defined
+    //var enableCurrentSiteButtonHelperExtensionOverride = true;
+    // forces Feature 7 to be enabled/disabled when defined
+    //var enableKenticoLoaderHiderOverride = true;
+    // forces Feature 8 to be enabled/disabled when defined
+    //var enableSiteListDropdownAutoHelperOverride = true;
 
-    // show cookie
-    if (settingsCookie.length > 0) {
-        katSettings = JSON.parse(settingsCookie);
-        //console.log('parsed katSettings', katSettings);
-    }
-    else {
-        katSettings = {
-            feature1: enableKenticoVersionDetection,
-            feature2: enableModalClosingHelper,
-            feature3: enableSiteListDropdownHelper,
-            feature4: enableBreadcrumbMiddleClickHelper,
-            feature5: enableCurrentSiteButtonHelper,
-            feature6: enableCurrentSiteButtonHelperExtension,
-            feature7: enableKenticoLoaderHider,
-            feature8: enableSiteListDropdownAutoHelper
-        };
-        //console.log('defaulted katSettings', katSettings);
-    }
-    setCookie('PITOWebCMS_KATSettings', JSON.stringify(katSettings));
+    // name of our settings cookie
+    var settingsCookieName = 'PITOWebCMS_KATSettings';
+
+    // name of our site list cookie
+    var lastSelectedSitesCookieName = 'PITOWebCMS_KATLastSelectedSites';
 
     // (Settings for Feature 1)
     // gets version of Kentico
@@ -137,30 +146,16 @@ jQuery(function ($, undefined) {
         m_c_plc_lt_ctl00_ObjectTreeMenu_layoutElem_paneContentTMain: 2,
         m_c_plc_lt_ctl00_HorizontalTabs_l_c: 3
     };
-    // reverse mapping for easy lookup (essentially flips the keys and values of iframeMap)
-    /*var iframeMapRev = Object.keys(iframeMap).reduce((acc, propName) => {
-        acc[iframeMap[propName]] = propName;
-        return acc;
-    }, {});*/
-    // if (debugF) console.log(iframeMap, iframeMapRev, iframeMap['undef']);
-    // give iframes access to a nicer console.log message
-    window.console.iframeLog = function (msg, iframeDepth, attrID, parentAttrID) {
-        if (debugF) console.log('> ' + '  '.repeat(iframeDepth - 1) + msg + '; ifid[' + (iframeMap[attrID] || attrID) + ']; pifid[' + (iframeMap[parentAttrID] || parentAttrID || '') + ']');
-    };
     // mapping of hash id's to my own designated app id's
     var hashAppMap = {
         undef: 'N/A',
-        '#': 0, // Dashboard
+        '#': 99, // Dashboard
+        '': 98, // Dashboard
         '#02cded6b-aa35-4a82-a5f3-e5a5fe82e58b': 1, // Settings
         '#5576826f-328b-4b53-9f4b-e877fabd4d63': 2, // Sites
         '#ef314079-8dbb-4273-bed1-a4af14d0cbf7': 3, // Widgets
         '#e7c58bcc-a132-40cf-b587-c11fbf146963': 4 // Event log
     };
-    // reverse mapping for easy lookup (essentially flips the keys and values of hashAppMap)
-    /*var hashAppMapRev = Object.keys(iframeMap).reduce((acc, propName) => {
-        acc[iframeMap[propName]] = propName;
-        return acc;
-    }, {});*/
 
     // (Feature 6,7)
     // how long brute force runs for (in seconds)
@@ -173,12 +168,30 @@ jQuery(function ($, undefined) {
     var hash = window.location.hash;
     // current site
     var currentSite = '';
+    // this holds an object of our setting values (gets stored/retrieved via cookies)
+    var katSettings = {};
+    // settings cookie val
+    var settingsCookie = null;
     // Select Site dialog observer
     var selectSiteObserver = null;
     // select site last selected list
     var lastSelectedSites = [];
     // last site selected from list
     var lastSelectedSite = null;
+    // lastSelectedSites cookie val
+    var lastSelectedSitesCookie = null;
+
+    // reverse mapping for easy lookup (essentially flips the keys and values of iframeMap)
+    /*var iframeMapRev = Object.keys(iframeMap).reduce((acc, propName) => {
+        acc[iframeMap[propName]] = propName;
+        return acc;
+    }, {});*/
+    // if (debugF) console.log(iframeMap, iframeMapRev, iframeMap['undef']);
+    // reverse mapping for easy lookup (essentially flips the keys and values of hashAppMap)
+    /*var hashAppMapRev = Object.keys(iframeMap).reduce((acc, propName) => {
+        acc[iframeMap[propName]] = propName;
+        return acc;
+    }, {});*/
 
     // (Feature 6,7)
     // iterator for bruteForceLooper()
@@ -189,15 +202,72 @@ jQuery(function ($, undefined) {
 
     /** DEFINE FUNCTIONS **/
 
+    // give iframes access to a nicer console.log message
+    window.console.iframeLog = function (msg, iframeDepth, attrID, parentAttrID) {
+        if (debugF) console.log('> ' + '  '.repeat(iframeDepth - 1) + msg + '; ifid[' + (iframeMap[attrID] || attrID) + ']; pifid[' + (iframeMap[parentAttrID] || parentAttrID || '') + ']');
+    };
+
     // sets styles (todo: reference external CSS stylesheet)
-    function addGlobalStyle (css) {
-        var head, style;
-        head = document.getElementsByTagName('head')[0];
-        if (!head) { return; }
-        style = document.createElement('style');
-        style.type = 'text/css';
-        style.innerHTML = css;
-        head.appendChild(style);
+    function addStyles ($head, css) {
+        if (!$head) return;
+        $head.append('<style>' + css + '</style>');
+    }
+
+    // ensure lastSelectedSites cookie is up-to-date
+    function loadLatestSettingsCookie () {
+        // attempts to get the cookie which stores our settings
+        settingsCookie = getCookie(settingsCookieName);
+        //console.log('settingsCookie len', settingsCookie.length);
+
+        // if the settings cookie exists, load our settings
+        if (settingsCookie.length > 0) {
+            katSettings = JSON.parse(settingsCookie);
+            //console.log('parsed katSettings', katSettings);
+        }
+        // otherwise, set our default settings cookie
+        else {
+            katSettings = {
+                feature1: enableKenticoVersionDetection,
+                feature2: enableModalClosingHelper,
+                feature3: enableSiteListDropdownHelper,
+                feature4: enableBreadcrumbMiddleClickHelper,
+                feature5: enableCurrentSiteButtonHelper,
+                feature6: enableCurrentSiteButtonHelperExtension,
+                feature7: enableKenticoLoaderHider,
+                feature8: enableSiteListDropdownAutoHelper
+            };
+            //console.log('defaulted katSettings', katSettings);
+
+            setCookie(settingsCookieName, JSON.stringify(katSettings), 365);
+        }
+
+        // manual overrides
+        if (typeof enableKenticoVersionDetectionOverride !== 'undefined') katSettings.feature1 = enableKenticoVersionDetectionOverride;
+        if (typeof enableModalClosingHelperOverride !== 'undefined') katSettings.feature2 = enableModalClosingHelperOverride;
+        if (typeof enableSiteListDropdownHelperOverride !== 'undefined') katSettings.feature3 = enableSiteListDropdownHelperOverride;
+        if (typeof enableBreadcrumbMiddleClickHelperOverride !== 'undefined') katSettings.feature4 = enableBreadcrumbMiddleClickHelperOverride;
+        if (typeof enableCurrentSiteButtonHelperOverride !== 'undefined') katSettings.feature5 = enableCurrentSiteButtonHelperOverride;
+        if (typeof enableCurrentSiteButtonHelperExtensionOverride !== 'undefined') katSettings.feature6 = enableCurrentSiteButtonHelperExtensionOverride;
+        if (typeof enableKenticoLoaderHiderOverride !== 'undefined') katSettings.feature7 = enableKenticoLoaderHiderOverride;
+        if (typeof enableSiteListDropdownAutoHelperOverride !== 'undefined') katSettings.feature8 = enableSiteListDropdownAutoHelperOverride;
+    }
+
+    // ensure lastSelectedSites cookie is up-to-date
+    function loadLatestLastSelectedSitesCookie () {
+        // attempts to get the cookie which stores our last selected sites list
+        lastSelectedSitesCookie = getCookie(lastSelectedSitesCookieName);
+        //console.log('lastSelectedSitesCookie len', lastSelectedSitesCookie.length);
+
+        // if the "last selected sites" cookie exists, load it
+        if (lastSelectedSitesCookie.length > 0) {
+            lastSelectedSites = JSON.parse(lastSelectedSitesCookie);
+            //console.log('parsed lastSelectedSites', lastSelectedSites);
+        }
+        // otherwise, set our default "last selected sites" cookie
+        else {
+            //console.log('defaulted lastSelectedSites', lastSelectedSites);
+            setCookie(lastSelectedSitesCookieName, JSON.stringify(lastSelectedSites), 365);
+        }
     }
 
     // sets cookie
@@ -227,7 +297,7 @@ jQuery(function ($, undefined) {
     // gets/sets current site name we're in /admin of
     function currentSiteName () {
         if (currentSite.length === 0) {
-            currentSite = $('#m_c_layoutElem_h_Header_ss_pnlSelector .dropdown').text();
+            currentSite = trimSiteName($('#m_c_layoutElem_h_Header_ss_pnlSelector .dropdown').text());
         }
         return currentSite;
     }
@@ -299,8 +369,6 @@ jQuery(function ($, undefined) {
             }
         }
     }
-
-    // (Feature 3)
     // moves `(more sites...)` to the top of all known site list dropdowns
     function SiteListDropdownHelper (hashId, $this) {
         if (!katSettings.feature3) { // enableSiteListDropdownHelper
@@ -373,10 +441,14 @@ jQuery(function ($, undefined) {
         }
     }
 
+    // (All features)
     // only run certain code while in its respective app (by checking the hash)
     function checkHash (listener, hash, $this, ifid) {
         var hashId = hashAppMap[hash] || -1;
         switch (hashId) {
+            case 99: case 98: // Dashboard
+                if (debugV && debugF) console.log('  (Dashboard detected); hashId[' + hashId + ']');
+                break;
             case 1: // Settings
                 if (ifid === 1) {
                     if (debugF) console.log('  (Settings app detected)');
@@ -448,9 +520,19 @@ jQuery(function ($, undefined) {
                 }
                 break;
             default:
-                console.log('! Unexpected hash passed to checkHash(): ' + hash);
+                console.log('! Unexpected hash passed to checkHash(); hash[' + hash + ']; hashId[' + hashId + ']');
                 break;
         }
+    }
+
+    // removes Dev/Test from end of site name
+    function trimSiteName (siteName) {
+        var tmp = siteName.split(' ');
+        if (~['Dev', 'Test'].indexOf(tmp[tmp.length - 1])) {
+            tmp.pop();
+            return tmp.join(' ');
+        }
+        return siteName;
     }
 
     // recursively applies event listeners to all containing iframes
@@ -499,11 +581,23 @@ jQuery(function ($, undefined) {
 
                                 // push selected site name (from normal table listing) to our lastSelectedSites array
                                 $('#m_c_selectionDialog_uniGrid_v', $this.contents()).on('click', '.SelectableItem', function (e) {
+                                    loadLatestLastSelectedSitesCookie();
                                     //console.log(e.target.textContent, lastSelectedSites);
-                                    lastSelectedSites.push(e.target.textContent);
+                                    //console.log('lastSelectedSites before', lastSelectedSites.slice());
+                                    // push site name
+                                    lastSelectedSites.push(trimSiteName(e.target.textContent));
+                                    // truncate list (if over 100 elements)
+                                    if (lastSelectedSites.length > 100) {
+                                        lastSelectedSites = lastSelectedSites.slice(-100);
+                                    }
+                                    // filter out duplicates (saving the last occurrence)
+                                    lastSelectedSites = lastSelectedSites.filter((el, i, ar) => ar.lastIndexOf(el) === i);
+                                    //console.log('lastSelectedSites after', lastSelectedSites);
+                                    // update cookie
+                                    setCookie(lastSelectedSitesCookieName, JSON.stringify(lastSelectedSites), 365);
                                 });
 
-                                var nameVal = $('#m_c_selectionDialog_txtSearch', $contents).val();
+                                var nameVal = trimSiteName($('#m_c_selectionDialog_txtSearch', $contents).val());
                                 // if name field is current site
                                 //   select the site
                                 if (nameVal === currentSiteName() || nameVal === lastSelectedSite) {
@@ -550,16 +644,10 @@ jQuery(function ($, undefined) {
                                 var itemsPerPage = $('#m_c_selectionDialog_uniGrid_p_drpPageSize', $children).val() || 10;
                                 var html = '';
                                 // build html table rows
-                                for (var len = lastSelectedSites.length, i = len - 1, max = Math.min(len, itemsPerPage), count = 0, seen = [], v; count < max; --i, ++count) {
+                                for (var len = lastSelectedSites.length, i = len - 1, max = Math.min(len, itemsPerPage), count = 0; count < max; --i, ++count) {
                                     if (i < 0) break;
-                                    v = lastSelectedSites[i];
-                                    // remove and skip duplicates
-                                    if (~seen.indexOf(v)) {
-                                        lastSelectedSites.splice(i, 1);
-                                        continue;
-                                    }
-                                    seen.push(v);
-                                    html += '<tr><td><div class="SelectableItem">' + lastSelectedSites[i] + '</div></td></tr>';
+                                    var siteName = lastSelectedSites[i];
+                                    html += '<tr><td><div class="SelectableItem" title="Select &quot;' + siteName + '&quot;">' + siteName + '</div><a role="button" title="Delete &quot;' + siteName + '&quot; from list?">×</a></td></tr>';
                                 }
                                 return html;
                             };
@@ -567,11 +655,13 @@ jQuery(function ($, undefined) {
                             // inject last selected sites table
                             var addLastSelectedSites = function (a) {
                                 //console.log('addLastSelectedSites', a);
+                                loadLatestLastSelectedSitesCookie();
                                 if (lastSelectedSites.length > 0) {
                                     // generate and inject table HTML
                                     var divContent = $('#divContent', $children)[0];
                                     var scrollbarDiff = divContent.offsetWidth - divContent.clientWidth;
-                                    $('#m_c_selectionDialog_pnlUpdate', $children).prepend('<div id="lastSitesSelect" style="background:#fff;width:' + (275 - scrollbarDiff) + 'px;position:absolute;right:0;border-left:1px solid #e5e5e5;overflow:hidden;"><table class="table" style="margin-bottom:0"><thead><tr><th>Last selected sites</th></tr></thead><tbody>' + lastSelectedHTML() + '</tbody></table></div>');
+                                    var tableWidth = 275 - scrollbarDiff;
+                                    $('#m_c_selectionDialog_pnlUpdate', $children).prepend('<div id="lastSitesSelect" style="width:' + tableWidth + 'px;"><table class="table"><thead><tr><th>Last selected sites</th></tr></thead><tbody>' + lastSelectedHTML() + '</tbody></table></div>');
 
                                     // attach click events
                                     var $contents = $this.contents();
@@ -587,6 +677,31 @@ jQuery(function ($, undefined) {
                                         // click Search
                                         $('#m_c_selectionDialog_btnSearch', $contents).click();
                                     });
+
+                                    $('#lastSitesSelect', $contents).on('click', 'div.SelectableItem + a', function () {
+                                        if (debugF) console.log('    "Delete site" item clicked in "Select site" dialog; name[' + $(this).text() + ']');
+
+                                        loadLatestLastSelectedSitesCookie();
+
+                                        // remove site from list if it exists
+                                        var i = lastSelectedSites.indexOf($(this).prev().text());
+                                        if (~i) lastSelectedSites.splice(i, 1);
+
+                                        // update cookie
+                                        setCookie(lastSelectedSitesCookieName, JSON.stringify(lastSelectedSites), 365);
+
+                                        // redraw table
+                                        $('#lastSitesSelect tbody', $contents).html(lastSelectedHTML());
+                                    });
+
+                                    // add styles
+                                    var iframeStyles = '';
+                                    iframeStyles += '#lastSitesSelect { background:#fff;position:absolute;right:0;border-left:1px solid #e5e5e5;overflow:hidden; }';
+                                    iframeStyles += '#lastSitesSelect .table { margin-bottom:0; }';
+                                    iframeStyles += '#lastSitesSelect .table tbody tr td { position:relative; }';
+                                    iframeStyles += '#lastSitesSelect .table tbody tr td a { position:absolute;background:#fff;top:0;left:' + (tableWidth - 17) + 'px;padding:6px 3px;color:#b12628;border-left:1px solid #e5e5e5;text-decoration:none; }';
+                                    iframeStyles += '#lastSitesSelect .table tbody tr td a:hover { border-left:1px solid #b12628;background:#b12628;color:#fff; }';
+                                    addStyles($('head', $this.contents()), iframeStyles);
                                 }
                             };
 
@@ -715,6 +830,8 @@ jQuery(function ($, undefined) {
 
     /** INITIALIZE APP **/
 
+    loadLatestSettingsCookie();
+
     /// Do not run if current version of Kentico isn't in the list of compatible versions
     if (katSettings.feature1) { // enableKenticoVersionDetection
         if (currentKenticoVersion.length === 0 || !~listOfCompatibleKenticoVersions.indexOf(currentKenticoVersion[0])) {
@@ -730,11 +847,12 @@ jQuery(function ($, undefined) {
         console.log('! KenticoVersionDetection disabled');
     }
 
+    // add styles
     var globalStyles = '';
-    globalStyles += '#cms-header-katsettings .navbar-left li { padding-left: 15px; }';
-    globalStyles += '#cms-header-katsettings .navbar-right li label { cursor: pointer; }';
-    globalStyles += '#cms-header-katsettings .navbar-right li input { cursor: pointer; margin: -2px 10px 0 5px; vertical-align: middle; }';
-    addGlobalStyle(globalStyles);
+    globalStyles += '#cms-header-katsettings .navbar-left li { padding-left:15px; }';
+    globalStyles += '#cms-header-katsettings .navbar-right li label { cursor:pointer; }';
+    globalStyles += '#cms-header-katsettings .navbar-right li input { cursor:pointer;margin:-2px 10px 0 5px;vertical-align:middle; }';
+    addStyles($('head'), globalStyles);
 
     /// Close top-most modal when clicking out of it
     //    Scenarios: opening a widget within a widget, opening the site list dialog, what else?
@@ -757,6 +875,8 @@ jQuery(function ($, undefined) {
     else if (debugV) {
         console.log('! BreadcrumbMiddleClickHelper disabled');
     }
+
+    loadLatestLastSelectedSitesCookie();
 
     /// Feature 3 => very top of all admin pages
     SiteListDropdownHelper(0);
@@ -803,11 +923,11 @@ jQuery(function ($, undefined) {
         var tar = e.target;
         //console.log(tar.id, tar.checked);
         katSettings[tar.id] = tar.checked;
-        setCookie('PITOWebCMS_KATSettings', JSON.stringify(katSettings));
+        setCookie(settingsCookieName, JSON.stringify(katSettings), 365);
         if (tar.id === 'feature2' && tar.checked) {
             // rebind click event to ui-overlay of body
             reInitFeature2();
         }
-        //console.log('cookie', JSON.parse(getCookie('PITOWebCMS_KATSettings')));
+        //console.log('cookie', JSON.parse(getCookie(settingsCookieName)));
     });
 });
