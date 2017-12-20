@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kentico Admin Tools Helper
 // @namespace    http://jaredgotte.com
-// @version      1.0
+// @version      1.1
 // @description  Helps with the Kentico Admin Tools by triggering faux load events for iframe pages
 // @author       Jared Gotte
 // @match        http://*.tamu.edu/CMSModules/AdminControls/Pages/UIPage.aspx*
@@ -9,21 +9,31 @@
 // @grant        none
 // ==/UserScript==
 
+/*
+# Changelog:
+  1.0 | Default features (checks frame depth, sends console.log info, dispatches fauxLoad event to frame element)
+  1.1 | Bug fixes/refactoring
+*/
+
 (function() {
     'use strict';
 
 
     /** DEFINE VARIABLES **/
 
-    console.log = top.console.iframeLog || console.log; // overwrite local console.log method if we're in iframe
-    var iframeDepth; // current iframe depth
-    var checkLiveIterator = 0; // for checkLive()
-    var checkLiveID; // var to set interval to
+    // override local console.log method if we're in iframe
+    console.log = top.console.iframeLog || console.log;
+    // stores iframe depth
+    var iframeDepth;
+    // for checkLive()
+    var checkLiveIterator = 0;
+    // checkLive() interval reference
+    var checkLiveID;
 
 
     /** DEFINE FUNCTIONS **/
 
-    // get the iframe depth
+    // gets the iframe depth
     function getFrameDepth (win) {
         if (win === window.top) {
             return 0;
@@ -61,15 +71,19 @@
 
     // do following only if we're in an iframe
     if (iframeDepth > 0) {
-        // check to see if current iframe gets replaced (read notes above checkList())
-        //checkLiveID = setInterval(checkLive, 1000); // commented out to disable
+        // check to see if/when the current iframe gets replaced (read notes above checkLive())
+        //checkLiveID = setInterval(checkLive, 1000); // commented out to disable; i.e., uncomment to enable
+
+        // get id's
+        var ifid = window.frameElement && window.frameElement.id || 'undef';
+        var pifid = window.parent && window.parent.frameElement && window.parent.frameElement.id || 'undef';
 
         // log ready
-        console.log('(ui page ready)', iframeDepth, window.frameElement && window.frameElement.id || 'undef', window.parent && window.parent.frameElement && window.parent.frameElement.id || 'undef');
+        console.log('(ui page ready)', iframeDepth, ifid, pifid);
 
         // send event
         if (window.frameElement !== null) {
-            console.log('  triggering fauxLoad', iframeDepth, window.frameElement.id);
+            console.log('  triggering fauxLoad', iframeDepth, ifid, pifid);
             window.frameElement.dispatchEvent(new Event('fauxLoad'));
         }
     }
