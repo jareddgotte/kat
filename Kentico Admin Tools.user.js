@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kentico Admin Tools
 // @namespace    http://jaredgotte.com
-// @version      2.1
+// @version      2.2
 // @description  Helps with working in the Kentico /admin interface. Depends on the Kentico Admin Tools Helper userscript. List of compatible Kentico versions can be found in the `listOfCompatibleKenticoVersions` variable defined below.
 // @author       Jared Gotte
 // @match        http://*.tamu.edu/Admin/*
@@ -22,21 +22,22 @@
   5. Adds a "Current Site" button to the Sites app search form to help quickly filter out every site but the current one
   6. Adds a "Current Site" button to the "Select Site" dialog after choosing the "(more sites...)" option
   7. Prevents Kentico's Loader from appearing (improves page load performance)
+  8. Auto selects "(more sites...)" instead of moving the option to the top of the list
 */
 
 /*
 # List of Future Ideas:
   * While in the Site Export wizard, automatically change the item listing dropdown to 100 from 10 (or at least move the dropdown to the top)
-  * Move the current site near the top of Site List dropdowns (under "(more sites...)")
   * In the CSS stylesheet (and Smart search) app, add a button -- similar to the "Current Site" one for Sites -- to where it grabs the site's abbreviation within the parenthesis and filters based on that (won't work for all sites)
+  * Save/load the "Last selected sites" to/from cookies
 */
 
 /*
 # List of Possible Bugs:
   * After completing/cancelling the Site/Object Export/Import wizard (and thereby getting bounced back to the Sites app), the "Current Site" button may not reappear automatically on the form
     * might be fixed
-  * Event log -> Select site does not inherit Feature 3
   * Users -> edit -> Sites tab -> Add sites does not inherit Feature 6
+  * KAT settings -> toggle on/off auto-select
 */
 
 /*
@@ -55,6 +56,9 @@
         * Added a history of "last selected sites" to the 'Select site' dialog
         * Broke repeated code out into modularized functions
         * Created a hash-to-app library for the modularized functions
+  2.2 | * Added ability to save/load settings from cookies
+        * Added way to toggle settings from the admin bar
+        * Added styles
 */
 
 jQuery(function ($, undefined) {
@@ -72,23 +76,48 @@ jQuery(function ($, undefined) {
     // prints out iframe related debug messages to console.log when true
     var debugF = false;
 
-    // (Feature toggling)
+    // (Feature toggling) | Note: these get overwritten by cookie values
     // enables Feature 1 when true
-    var enableKenticoVersionDetection = true;
+    var enableKenticoVersionDetection = true; // katSettings.feature1
     // enables Feature 2 when true
-    var enableModalClosingHelper = true;
+    var enableModalClosingHelper = true; // katSettings.feature2
     // enables Feature 3 when true
-    var enableSiteListDropdownHelper = true;
+    var enableSiteListDropdownHelper = true; // katSettings.feature3
     // enables Feature 4 when true
-    var enableBreadcrumbMiddleClickHelper = true;
+    var enableBreadcrumbMiddleClickHelper = true; // katSettings.feature4
     // enables Feature 5 when true
-    var enableCurrentSiteButtonHelper = true;
+    var enableCurrentSiteButtonHelper = true; // katSettings.feature5
     // enables Feature 6 when true
-    var enableCurrentSiteButtonHelperExtension = true;
+    var enableCurrentSiteButtonHelperExtension = true; // katSettings.feature6
     // enables Feature 7 when true
-    var enableKenticoLoaderHider = true;
-    // auto selects more sites instead of putting it to the stop for feature 3
-    var enableSiteListDropdownAutoHelper = true;
+    var enableKenticoLoaderHider = true; // katSettings.feature7
+    // enables Feature 8 when true
+    var enableSiteListDropdownAutoHelper = true; // katSettings.feature8
+
+    var katSettings;
+    // get cookie
+    var settingsCookie = getCookie('PITOWebCMS_KATSettings');
+    //console.log('settingsCookie len', settingsCookie.length);
+
+    // show cookie
+    if (settingsCookie.length > 0) {
+        katSettings = JSON.parse(settingsCookie);
+        //console.log('parsed katSettings', katSettings);
+    }
+    else {
+        katSettings = {
+            feature1: enableKenticoVersionDetection,
+            feature2: enableModalClosingHelper,
+            feature3: enableSiteListDropdownHelper,
+            feature4: enableBreadcrumbMiddleClickHelper,
+            feature5: enableCurrentSiteButtonHelper,
+            feature6: enableCurrentSiteButtonHelperExtension,
+            feature7: enableKenticoLoaderHider,
+            feature8: enableSiteListDropdownAutoHelper
+        };
+        //console.log('defaulted katSettings', katSettings);
+    }
+    setCookie('PITOWebCMS_KATSettings', JSON.stringify(katSettings));
 
     // (Settings for Feature 1)
     // gets version of Kentico
@@ -160,6 +189,41 @@ jQuery(function ($, undefined) {
 
     /** DEFINE FUNCTIONS **/
 
+    // sets styles (todo: reference external CSS stylesheet)
+    function addGlobalStyle (css) {
+        var head, style;
+        head = document.getElementsByTagName('head')[0];
+        if (!head) { return; }
+        style = document.createElement('style');
+        style.type = 'text/css';
+        style.innerHTML = css;
+        head.appendChild(style);
+    }
+
+    // sets cookie
+    function setCookie (cname, cvalue, exdays) {
+        var d = new Date();
+        d.setTime(d.getTime() + (exdays * 24 * 60 * 60 * 1000));
+        var expires = 'expires=' + d.toUTCString();
+        document.cookie = cname + '=' + cvalue + ';' + expires + ';path=/;domain=.tamu.edu';
+    }
+
+    // gets cookie
+    function getCookie (cname) {
+        var name = cname + '=';
+        var ca = document.cookie.split(';');
+        for(var i = 0; i < ca.length; i++) {
+            var c = ca[i];
+            while (c.charAt(0) === ' ') {
+                c = c.substring(1);
+            }
+            if (c.indexOf(name) === 0) {
+                return c.substring(name.length, c.length);
+            }
+        }
+        return '';
+    }
+
     // gets/sets current site name we're in /admin of
     function currentSiteName () {
         if (currentSite.length === 0) {
@@ -181,7 +245,7 @@ jQuery(function ($, undefined) {
     function bruteForceLooper () {
         if (bruteForceLooperIterator < bruteForceLooperIterations) {
             // ensures breadcrumb a href is set to the current page
-            if (enableBreadcrumbMiddleClickHelper) {
+            if (katSettings.feature4) { // enableBreadcrumbMiddleClickHelper
                 var $link = $('#m_c_layoutElem_h_pnlUpdate > .navbar').find('#js-nav-breadcrumb > li:nth-child(3) > a');
                 if ($link.length > 0 && $link.attr('href') === 'javascript:void(0)') {
                     $link.attr('href', window.location);
@@ -189,7 +253,7 @@ jQuery(function ($, undefined) {
             }
 
             // ensures Kentico's loader stays hidden (improves performance)
-            if (enableKenticoLoaderHider && window.Loader) {
+            if (katSettings.feature7 && window.Loader) { // enableKenticoLoaderHider
                 window.Loader.hide();
             }
 
@@ -213,7 +277,7 @@ jQuery(function ($, undefined) {
         //if (debugV) console.log('$moreSitesSel', $moreSitesSel, 'index', $moreSitesSel.index());
 
         // if auto select option on
-        if (enableSiteListDropdownAutoHelper && autoOption) {
+        if (katSettings.feature8 && autoOption) { // enableSiteListDropdownAutoHelper
             // auto select "(more sites...)"
             $dropdownSel.val('-2').change();
         }
@@ -239,7 +303,7 @@ jQuery(function ($, undefined) {
     // (Feature 3)
     // moves `(more sites...)` to the top of all known site list dropdowns
     function SiteListDropdownHelper (hashId, $this) {
-        if (!enableSiteListDropdownHelper) {
+        if (!katSettings.feature3) { // enableSiteListDropdownHelper
             if (debugV) console.log('! SiteListDropdownHelper disabled');
             return;
         }
@@ -326,7 +390,7 @@ jQuery(function ($, undefined) {
                 if (ifid === 1) {
                     if (debugF) console.log('  (Sites app detected)');
                     /// Enable ability to quickly search for the current site in the site list
-                    if (enableCurrentSiteButtonHelper) {
+                    if (katSettings.feature5) { // enableCurrentSiteButtonHelper
                         // drill down to the button group through any iframes:
                         //   1) iframe#m_c_layoutElem_cmsdesktop (already in)
                         // then add our button next to reset/search and bind the click event to it
@@ -425,7 +489,7 @@ jQuery(function ($, undefined) {
                     if ($children.length > 0) {
                         if (debugF) console.log('  (modal iframe loaded)');
 
-                        if (enableCurrentSiteButtonHelperExtension && $('#m_pt_headTitle', $children).text().trim() === 'Select site') {
+                        if (katSettings.feature6 && $('#m_pt_headTitle', $children).text().trim() === 'Select site') { // enableCurrentSiteButtonHelperExtension
                             if (debugF) console.log('    (in "Select site" modal)');
 
                             // adds our 'current site' or 'reset' button next to search and binds the click event to it
@@ -597,11 +661,62 @@ jQuery(function ($, undefined) {
         }
     }
 
+    // initialize Feature 2
+    function initFeature2 () {
+        $('body').on('click', '.ui-widget-overlay', function (e) {
+            if (katSettings.feature2) {
+                if (debug) console.log('# attempting to close modal');
+
+                // grab iframe contents
+                var $iframeContents = $(e.target).next().find('iframe.ui-widget-content').contents();
+                //if (debugV) console.log('$iframeContents', $iframeContents);
+
+                // Essentially what we're doing:
+                //   iterate through the iframes/frames until close button is found then click it
+
+                // (Site List dialog)
+                // try to find a close button
+                var $closeButton = $iframeContents.find('.close-button a i');
+                //if (debugV) console.log('$closeButton', $closeButton);
+                if ($closeButton.length > 0) {
+                    // if found, try to click the close button
+                    $iframeContents.find('.close-button a i').click();
+
+                    return; // stop processing
+                }
+
+                // (Widget Properties dialog)
+                //   Accordiception testing: http://testregistrar.tamu.edu/Courses,-Registration,-Scheduling/Final-Examination-Schedules
+                // try to find a #frameHeader
+                var $frameHeader = $iframeContents.find('frame#frameHeader');
+                if ($frameHeader.length > 0) {
+                    // if found, try to click the close button
+                    var $frameHeaderContents = $($frameHeader[0].contentDocument);
+                    //if (debugV) console.log('frameHeaderContents', $frameHeaderContents);
+                    //if (debugV) console.log('close-button', $frameHeaderContents.find('.close-button'));
+                    $frameHeaderContents.find('.close-button a i').click();
+
+                    return; // stop processing
+                }
+
+                // (Detect other possible versions of dialogs)
+                alert('Kentico Admin Tools Exception! Check the console for details.');
+                console.log('! Kentico Admin Tools Exception: Top most modal may not have been clicked out of. $iframeContents: ', $iframeContents);
+            }
+        });
+    }
+
+    // reinitialize Feature 2
+    function reInitFeature2 () {
+        $('body').off('click', '.ui-widget-overlay');
+        initFeature2();
+    }
+
 
     /** INITIALIZE APP **/
 
     /// Do not run if current version of Kentico isn't in the list of compatible versions
-    if (enableKenticoVersionDetection) {
+    if (katSettings.feature1) { // enableKenticoVersionDetection
         if (currentKenticoVersion.length === 0 || !~listOfCompatibleKenticoVersions.indexOf(currentKenticoVersion[0])) {
             console.log('! Kentico Admin Tools only runs on certain versions of Kentico. Detected version: ' + currentKenticoVersion + '. List of compatible versions: ', listOfCompatibleKenticoVersions);
 
@@ -615,55 +730,23 @@ jQuery(function ($, undefined) {
         console.log('! KenticoVersionDetection disabled');
     }
 
+    var globalStyles = '';
+    globalStyles += '#cms-header-katsettings .navbar-left li { padding-left: 15px; }';
+    globalStyles += '#cms-header-katsettings .navbar-right li label { cursor: pointer; }';
+    globalStyles += '#cms-header-katsettings .navbar-right li input { cursor: pointer; margin: -2px 10px 0 5px; vertical-align: middle; }';
+    addGlobalStyle(globalStyles);
+
     /// Close top-most modal when clicking out of it
     //    Scenarios: opening a widget within a widget, opening the site list dialog, what else?
-    if (enableModalClosingHelper) {
-        $('body').on('click', '.ui-widget-overlay', function (e) {
-            if (debug) console.log('# attempting to close modal');
-
-            // grab iframe contents
-            var $iframeContents = $(e.target).next().find('iframe.ui-widget-content').contents();
-            //if (debugV) console.log('$iframeContents', $iframeContents);
-
-            // Essentially what we're doing:
-            //   iterate through the iframes/frames until close button is found then click it
-
-            // (Site List dialog)
-            // try to find a close button
-            var $closeButton = $iframeContents.find('.close-button a i');
-            //if (debugV) console.log('$closeButton', $closeButton);
-            if ($closeButton.length > 0) {
-                // if found, try to click the close button
-                $iframeContents.find('.close-button a i').click();
-
-                return; // stop processing
-            }
-
-            // (Widget Properties dialog)
-            //   Accordiception testing: http://testregistrar.tamu.edu/Courses,-Registration,-Scheduling/Final-Examination-Schedules
-            // try to find a #frameHeader
-            var $frameHeader = $iframeContents.find('frame#frameHeader');
-            if ($frameHeader.length > 0) {
-                // if found, try to click the close button
-                var $frameHeaderContents = $($frameHeader[0].contentDocument);
-                //if (debugV) console.log('frameHeaderContents', $frameHeaderContents);
-                //if (debugV) console.log('close-button', $frameHeaderContents.find('.close-button'));
-                $frameHeaderContents.find('.close-button a i').click();
-
-                return; // stop processing
-            }
-
-            // (Detect other possible versions of dialogs)
-            alert('Kentico Admin Tools Exception! Check the console for details.');
-            console.log('! Kentico Admin Tools Exception: Top most modal may not have been clicked out of. $iframeContents: ', $iframeContents);
-        });
+    if (katSettings.feature2) { // enableModalClosingHelper
+        initFeature2();
     }
     else if (debugV) {
         console.log('! ModalClosingHelper disabled');
     }
 
     /// Enable middle-clicking to work for the breadcrumb in the top header
-    if (enableBreadcrumbMiddleClickHelper) {
+    if (katSettings.feature4) { // enableBreadcrumbMiddleClickHelper
         $('.main-header').on('mouseup', '#js-nav-breadcrumb > li:nth-child(3)', function (e) {
             if (e.which === 2 && e.target.tagName !== 'A') {
                 if (debug) console.log('# middle button clicked on the third .main-header li element');
@@ -680,4 +763,51 @@ jQuery(function ($, undefined) {
 
     /// Recursively apply event listeners to all containing iframes
     applyLoadToIframes($('body'), 1, 'instant');
+
+    /// Draw and bind events to Kentico Admin Settings
+    // draw setting html
+    function drawSettings () {
+        var settings = [2, 8];
+        var settingNames = ['Modal Closer', 'Auto-select "(more sites...)"'];
+        var html = '';
+        for (var i = 1, len = Object.keys(katSettings).length; i <= len; ++i) {
+            var ind = settings.indexOf(i);
+            //console.log(i, ind);
+            if (~ind) {
+                html += '<li><label for="feature' + i + '">' + settingNames[ind] + '</label><input type="checkbox" id="feature' + i + '"' + (katSettings['feature' + i] ? ' checked' : '') + '></li>';
+            }
+        }
+        return html;
+    }
+
+    // User dropdown test
+    //$('#m_c_layoutElem_h_pnlUpdate > div > ul.navbar-right').prepend('<li><h2 class="sr-only">KAT Settings</h2><div class="navbar-inverse cms-navbar"><ul class="nav navbar-nav navbar-right navbar-inverse"><li class=""><a href="#" data-toggle="dropdown" class="dropdown-toggle" title="KAT Settings menu"><i aria-hidden="true" class="icon-cogwheel-square cms-nav-icon-large"></i><span class="sr-only">Open KAT Settings menu</span></a><ul class="dropdown-menu" role="menu"><li><label for="setting1">Setting 1</label><input type="checkbox" name="setting1" id="setting1"></li><li><label for="setting2">Setting 2</label><input type="checkbox" name="setting2" id="setting2" checked></li></li>');
+
+    // KAT icon
+    $('#m_c_layoutElem_h_pnlUpdate > div > ul.navbar-right').prepend('<li><h2 class="sr-only">KAT Settings</h2><a class="accordion-toggle collapsed" href="#kat-nav-settings" data-toggle="collapse" title="Open KAT Settings"><i class="icon-cogwheel-square cms-nav-icon-large" aria-hidden="true"></i><span class="sr-only">Open KAT Settings</span></a></li>');
+    // KAT panel
+    $('#m_c_layoutElem_h_pnlUpdate').append('<div id="cms-header-katsettings"><div id="m_c_layoutElem_h_Header_katSettings_pnlToolbar"><div id="kat-nav-settings" class="navbar cms-navbar-help panel-collapse no-transition collapse"><ul class="nav navbar-nav navbar-left"><li>Jared&apos;s Kentico Admin Tools (KAT)</li></ul><ul class="nav navbar-nav navbar-right">' + drawSettings() + '</ul></div></div></div>');
+
+    // how to break this: click the cog/settings button real fast and you'll see the de-sync of console logs
+    /*$('#m_c_layoutElem_h_pnlUpdate > div > ul.navbar-right').on('click', 'a[href="#kat-nav-settings"].collapsed', function (e) {
+        console.log('show');
+    });
+    $('#m_c_layoutElem_h_pnlUpdate > div > ul.navbar-right').on('click', 'a[href="#kat-nav-settings"]', function (e) {
+        if (!$(this).hasClass('collapsed')) {
+            console.log('hide');
+        }
+    });*/
+
+    // bind click event and set cookie
+    $('#m_c_layoutElem_h_pnlUpdate #kat-nav-settings').on('click', 'input', function (e) {
+        var tar = e.target;
+        //console.log(tar.id, tar.checked);
+        katSettings[tar.id] = tar.checked;
+        setCookie('PITOWebCMS_KATSettings', JSON.stringify(katSettings));
+        if (tar.id === 'feature2' && tar.checked) {
+            // rebind click event to ui-overlay of body
+            reInitFeature2();
+        }
+        //console.log('cookie', JSON.parse(getCookie('PITOWebCMS_KATSettings')));
+    });
 });
