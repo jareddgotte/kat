@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kentico Admin Tools
 // @namespace    http://jaredgotte.com
-// @version      2
+// @version      2.1
 // @description  Helps with working in the Kentico /admin interface. Depends on the Kentico Admin Tools Helper userscript. List of compatible Kentico versions can be found in the `listOfCompatibleKenticoVersions` variable defined below.
 // @author       Jared Gotte
 // @match        http://*.tamu.edu/Admin/*
@@ -9,6 +9,9 @@
 // @grant        none
 // @require      http://code.jquery.com/jquery-3.2.1.min.js
 // ==/UserScript==
+
+// remove unnecessary warnings
+/*jshint scripturl:true*/
 
 /*
 # List of Current Features:
@@ -48,6 +51,10 @@
         * Added ability to remove Kentico's loader
         * Added dependency: Kentico Admin Tools Helper userscript
         * Refactored code / improved formatting
+  2.1 | * Added ability to automatically select "more sites" once the dropdown opens instead of waiting for it to move to the top of the list
+        * Added a history of "last selected sites" to the 'Select site' dialog
+        * Broke repeated code out into modularized functions
+        * Created a hash-to-app library for the modularized functions
 */
 
 jQuery(function ($, undefined) {
@@ -56,57 +63,113 @@ jQuery(function ($, undefined) {
 
     /** DEFINE VARIABLES **/
 
-    // (General settings)
-    var debug  = false; // if true, prints out BASIC   debug messages to console.log
-    var debugV = false; // if true, prints out VERBOSE debug messages to console.log
-    var debugF = false; // if true, prints out IFRAME  debug messages to console.log
+    // # User defined variables
+    // (Debug message switches)
+    // prints out basic debug messages to console.log when true
+    var debug = false;
+    // prints out verbose debug messages to console.log when true
+    var debugV = false;
+    // prints out iframe related debug messages to console.log when true
+    var debugF = false;
 
     // (Feature toggling)
-    var enableKenticoVersionDetection          = true; // if true, enables Feature 1
-    var enableModalClosingHelper               = true; // if true, enables Feature 2
-    var enableSiteListDropdownHelper           = true; // if true, enables Feature 3
-    var enableBreadcrumbMiddleClickHelper      = true; // if true, enables Feature 4
-    var enableCurrentSiteButtonHelper          = true; // if true, enables Feature 5
-    var enableCurrentSiteButtonHelperExtension = true; // if true, enables Feature 6
-    var enableKenticoLoaderHider               = true; // if true, enables Feature 7
+    // enables Feature 1 when true
+    var enableKenticoVersionDetection = true;
+    // enables Feature 2 when true
+    var enableModalClosingHelper = true;
+    // enables Feature 3 when true
+    var enableSiteListDropdownHelper = true;
+    // enables Feature 4 when true
+    var enableBreadcrumbMiddleClickHelper = true;
+    // enables Feature 5 when true
+    var enableCurrentSiteButtonHelper = true;
+    // enables Feature 6 when true
+    var enableCurrentSiteButtonHelperExtension = true;
+    // enables Feature 7 when true
+    var enableKenticoLoaderHider = true;
+    // auto selects more sites instead of putting it to the stop for feature 3
+    var enableSiteListDropdownAutoHelper = true;
 
     // (Settings for Feature 1)
-    var currentKenticoVersion = $('#m_c_layoutElem_h_Header_contextHelp_lblVersion').html().match(/\d+(\.\d+)*/g); // gets version of Kentico
-    var listOfCompatibleKenticoVersions = [ // defines list of versions of Kentico which are compatible with this tool
+    // gets version of Kentico
+    var currentKenticoVersion = $('#m_c_layoutElem_h_Header_contextHelp_lblVersion').html().match(/\d+(\.\d+)*/g);
+    // defines list of versions of Kentico which are compatible with this tool
+    var listOfCompatibleKenticoVersions = [
         '9.0.48',
         '9.0.49',
         '9.0.50'
     ];
 
-    // (iframe Management)
-    var iframeMap = { // map of iframe attribute id's to my own designated id's
+    // (Iframe management)
+    // mapping of iframe attribute id's to my own designated id's
+    var iframeMap = {
         undef: 'N/A',
         m_c_layoutElem_cmsdesktop: 1,
         m_c_plc_lt_ctl00_ObjectTreeMenu_layoutElem_paneContentTMain: 2,
         m_c_plc_lt_ctl00_HorizontalTabs_l_c: 3
     };
-    var iframeMapRev = Object.keys(iframeMap).reduce((acc, propName) => { // reverse mapping for easy lookup
+    // reverse mapping for easy lookup (essentially flips the keys and values of iframeMap)
+    /*var iframeMapRev = Object.keys(iframeMap).reduce((acc, propName) => {
         acc[iframeMap[propName]] = propName;
         return acc;
-    }, {});
-    //console.log(iframeMap, iframeMapRev, iframeMap['undef']);
-    window.console.iframeLog = function (msg, iframeDepth, attrID, parentAttrID) { // give iframes access to a nicer console.log message
+    }, {});*/
+    // if (debugF) console.log(iframeMap, iframeMapRev, iframeMap['undef']);
+    // give iframes access to a nicer console.log message
+    window.console.iframeLog = function (msg, iframeDepth, attrID, parentAttrID) {
         if (debugF) console.log('> ' + '  '.repeat(iframeDepth - 1) + msg + '; ifid[' + (iframeMap[attrID] || attrID) + ']; pifid[' + (iframeMap[parentAttrID] || parentAttrID || '') + ']');
     };
+    // mapping of hash id's to my own designated app id's
+    var hashAppMap = {
+        undef: 'N/A',
+        '#': 0, // Dashboard
+        '#02cded6b-aa35-4a82-a5f3-e5a5fe82e58b': 1, // Settings
+        '#5576826f-328b-4b53-9f4b-e877fabd4d63': 2, // Sites
+        '#ef314079-8dbb-4273-bed1-a4af14d0cbf7': 3, // Widgets
+        '#e7c58bcc-a132-40cf-b587-c11fbf146963': 4 // Event log
+    };
+    // reverse mapping for easy lookup (essentially flips the keys and values of hashAppMap)
+    /*var hashAppMapRev = Object.keys(iframeMap).reduce((acc, propName) => {
+        acc[iframeMap[propName]] = propName;
+        return acc;
+    }, {});*/
 
-    // (Static variables)
-    var hash = window.location.hash; // gets hash of window at load
+    // (Feature 6,7)
+    // how long brute force runs for (in seconds)
+    var bruteForceLooperPollSeconds = 1;
+    // the timeout between intervals (in milliseconds)
+    var bruteForceLooperPollRate = 50;
 
-    var bruteForceLooperIterator    = 0; // for Feature 6 and 7
-    var bruteForceLooperPollSeconds = 1; // how long brute force runs for
-    var bruteForceLooperPollRate    = 50; // the timeout between intervals (in milliseconds)
+    // # Static variables
+    // gets hash of window at load
+    var hash = window.location.hash;
+    // current site
+    var currentSite = '';
+    // Select Site dialog observer
+    var selectSiteObserver = null;
+    // select site last selected list
+    var lastSelectedSites = [];
+    // last site selected from list
+    var lastSelectedSite = null;
+
+    // (Feature 6,7)
+    // iterator for bruteForceLooper()
+    var bruteForceLooperIterator = 0;
+    // pre-calculates the intervals
     var bruteForceLooperIterations = bruteForceLooperPollSeconds * 1000 / bruteForceLooperPollRate;
 
 
     /** DEFINE FUNCTIONS **/
 
-    /// Feature 6,7
-    // spam handler for bruteForceLooper()
+    // gets/sets current site name we're in /admin of
+    function currentSiteName () {
+        if (currentSite.length === 0) {
+            currentSite = $('#m_c_layoutElem_h_Header_ss_pnlSelector .dropdown').text();
+        }
+        return currentSite;
+    }
+
+    // (Feature 6,7)
+    // spam handler for bruteForceLooper(), so we aren't executing overlapping loops
     function bruteForceLooperHelper () {
         if (debugV) console.log('bruteForceLooperIterator', bruteForceLooperIterator);
         bruteForceLooperIterator = 0;
@@ -138,16 +201,51 @@ jQuery(function ($, undefined) {
         }
     }
 
-    /// Feature 3
+    // (Feature 3)
+    // helper function to SiteListDropdownHelper()
+    function SiteListDropdownHelperHelper ($dropdownSel, moreSitesSel, autoOption) {
+        // get the site list dropdown element
+        //var $dropdownSel = $(this);
+        //if (debugV) console.log('$dropdownSel', $dropdownSel);
+
+        // now get the `(more sites...)` option element
+        var $moreSitesSel = $dropdownSel.find(moreSitesSel);
+        //if (debugV) console.log('$moreSitesSel', $moreSitesSel, 'index', $moreSitesSel.index());
+
+        // if auto select option on
+        if (enableSiteListDropdownAutoHelper && autoOption) {
+            // auto select "(more sites...)"
+            $dropdownSel.val('-2').change();
+        }
+        // if auto select option off
+        else {
+            // alternate approach
+            /*var optionArr = $('option', $dropdownSel).toArray();
+            var last = optionArr.pop();
+            if (last.value === '-2') {
+                $(last).prependTo($dropdownSel);
+                if (debugV) console.log('  "(more sites...)" moved');
+            }*/
+
+            // run the following code once
+            if ($moreSitesSel.index() > 0) {
+                // move the option element to the top
+                $moreSitesSel.prependTo($dropdownSel);
+                if (debugV) console.log('  "(more sites...)" moved');
+            }
+        }
+    }
+
+    // (Feature 3)
     // moves `(more sites...)` to the top of all known site list dropdowns
-    function SiteListDropdownHelper (id, $this) {
+    function SiteListDropdownHelper (hashId, $this) {
         if (!enableSiteListDropdownHelper) {
             if (debugV) console.log('! SiteListDropdownHelper disabled');
             return;
         }
 
         if (debugF || debugV) console.log('# loading SiteListDropdownHelper');
-        switch (id) {
+        switch (hashId) {
             case 0: // main header (very top of all admin pages)
                 if (debugF || debugV) console.log('  (for main header)');
                 // find the site selector and bind the click event to the dropdown
@@ -155,20 +253,8 @@ jQuery(function ($, undefined) {
                     if (debugF || debugV) console.log('  SiteListDropdownHelper clicked');
                     //if (debugV) console.log(e.target, this);
 
-                    // get the site list dropdown element
-                    var $dropdownSel = $(this).find('.dropdown-menu');
-                    //if (debugV) console.log('$dropdownSel', $dropdownSel);
-
-                    // now get the `(more sites...)` li element
-                    var $moreSitesSel = $dropdownSel.find('li[data-raw-value="-2"]');
-                    //if (debugV) console.log('$moreSitesSel', $moreSitesSel, 'index', $moreSitesSel.index());
-
-                    // run the following code once
-                    if ($moreSitesSel.index() > 0) {
-                        // move the li element to the top
-                        $moreSitesSel.prependTo($dropdownSel);
-                        if (debugV) console.log('  "(more sites...)" moved');
-                    }
+                    // arguments: dropdown menu jQuery selector, more sites option selector, auto select option to click it instead of move it
+                    SiteListDropdownHelperHelper($(this).find('.dropdown-menu'), 'li[data-raw-value="-2"]', false);
                 });
                 break;
             case 1: // Settings app (top left)
@@ -184,24 +270,12 @@ jQuery(function ($, undefined) {
                         if (debugF || debugV) console.log('  SiteListDropdownHelper clicked');
                         //if (debugV) console.log(e.target, this);
 
-                        // get the site list dropdown element
-                        var $dropdownSel = $(this);
-                        //if (debugV) console.log('$dropdownSel', $dropdownSel);
-
-                        // now get the `(more sites...)` option element
-                        var $moreSitesSel = $dropdownSel.find('option[value="-2"]');
-                        //if (debugV) console.log('$moreSitesSel', $moreSitesSel, 'index', $moreSitesSel.index());
-
-                        // run the following code once
-                        if ($moreSitesSel.index() > 0) {
-                            // move the option element to the top
-                            $moreSitesSel.prependTo($dropdownSel);
-                            if (debugV) console.log('  "(more sites...)" moved');
-                        }
+                        // arguments: dropdown menu jQuery selector, more sites option selector, auto select option to click it instead of move it
+                        SiteListDropdownHelperHelper($(this), 'option[value="-2"]', true);
                     });
                 }
                 break;
-            case 2: // Widgets app (each Widget's Security tab)
+            case 3: // Widgets app (each Widget's Security tab)
                 if (debugF || debugV) console.log('  (for Widgets app)');
                 // drill down to the site selector (through 3 iframes) in this order:
                 //   1) iframe#m_c_layoutElem_cmsdesktop
@@ -209,35 +283,108 @@ jQuery(function ($, undefined) {
                 //   3) iframe#m_c_plc_lt_ctl00_HorizontalTabs_l_c (already here)
                 // and bind the click event to the dropdown
                 $this.contents().on('click', '.DropDownField', function (e) {
+                    if (debugF || debugV) console.log('  SiteListDropdownHelper clicked', $(this).is(':focus'));
+                    //if (debugV) console.log(e.target, this);
+
+                    // arguments: dropdown menu jQuery selector, more sites option selector, auto select option to click it instead of move it
+                    SiteListDropdownHelperHelper($(this), 'option[value="-2"]', true);
+                });
+                break;
+            case 4: // Event log app (top right)
+                if (debugF || debugV) console.log('  (for Event log app)');
+                // drill down to the site selector (through 1 iframe) in this order:
+                //   1) iframe#m_c_layoutElem_cmsdesktop (already here)
+                // and bind the click event to the dropdown
+                $('#m_plcSiteSelector_siteSelector_ss', $this.contents()).on('click', '.DropDownField', function (e) {
                     if (debugF || debugV) console.log('  SiteListDropdownHelper clicked');
                     //if (debugV) console.log(e.target, this);
 
-                    // get the site list dropdown element
-                    var $dropdownSel = $(this);
-                    //if (debugV) console.log('$dropdownSel', $dropdownSel);
-
-                    // alternate approach
-                    /*var optionArr = $('option', $dropdownSel).toArray();
-                    var last = optionArr.pop();
-                    console.log(last.value);
-                    if (last.value === '-2') {
-                        $(last).prependTo($dropdownSel);
-                    }*/
-
-                    // now get the `(more sites...)` option element
-                    var $moreSitesSel = $dropdownSel.find('option[value="-2"]');
-                    //if (debugV) console.log('$moreSitesSel', $moreSitesSel, 'index', $moreSitesSel.index());
-
-                    // run the following code once
-                    if ($moreSitesSel.index() > 0) {
-                        // move the option element to the top
-                        $moreSitesSel.prependTo($dropdownSel);
-                        if (debugV) console.log('  "(more sites...)" moved');
-                    }
+                    // arguments: dropdown menu jQuery selector, more sites option selector, auto select option to click it instead of move it
+                    SiteListDropdownHelperHelper($(this), 'option[value="-2"]', false);
                 });
                 break;
             default:
                 console.log('  ! Unexpected id given for SiteListDropdownHelper(): ', id);
+                break;
+        }
+    }
+
+    // only run certain code while in its respective app (by checking the hash)
+    function checkHash (listener, hash, $this, ifid) {
+        var hashId = hashAppMap[hash] || -1;
+        switch (hashId) {
+            case 1: // Settings
+                if (ifid === 1) {
+                    if (debugF) console.log('  (Settings app detected)');
+                    if (listener === 1) console.log('  ! Why was Settings app detected by fauxLoad?');
+
+                    // Feature 3 => top left of Settings app
+                    SiteListDropdownHelper(hashId, $this);
+                }
+                break;
+            case 2: // Sites
+                if (ifid === 1) {
+                    if (debugF) console.log('  (Sites app detected)');
+                    /// Enable ability to quickly search for the current site in the site list
+                    if (enableCurrentSiteButtonHelper) {
+                        // drill down to the button group through any iframes:
+                        //   1) iframe#m_c_layoutElem_cmsdesktop (already in)
+                        // then add our button next to reset/search and bind the click event to it
+                        var $contents = $this.contents();
+                        if ($('#searchCurrentSite', $contents).length === 0) {
+                            $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_pnlForm .form-group-buttons', $contents)
+                                .prepend('<button type="button" value="Current Site" id="searchCurrentSite" class="btn btn-secondary">Current Site</button>')
+                                .on('click', 'button', function (e) {
+                                if ($(this).attr('id') === 'searchCurrentSite') {
+                                    if (debugF) console.log('    Current Site button clicked');
+
+                                    // set 'Site name' value to 0 (Contains)
+                                    $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_SiteDisplayName_drpOperator', $contents).val('0').change();
+
+                                    // insert name of current site into the 'Site name' input
+                                    $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_SiteDisplayName_txtText', $contents).val(currentSiteName());
+
+                                    // click Search (set a timeout because an error was occurring (since there's a timeout on the select's onchange event, a race condition might've been occurring))
+                                    setTimeout(function () {
+                                        $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_btnShow', $contents).click();
+                                    }, 0);
+                                }
+                            });
+                        }
+                    }
+                    else if (debugV) {
+                        console.log('  ! CurrentSiteButtonHelper disabled');
+                    }
+                }
+                break;
+            case 3: // Widgets
+                if (ifid === 1) {
+                    if (debugF) console.log('  (Widgets app detected)');
+                }
+                else if (ifid === 3) {
+                    // Feature 3 => Widget Security tab
+                    SiteListDropdownHelper(hashId, $this);
+                }
+                break;
+            case 4: // Event log
+                if (ifid === 1) {
+                    if (debugF) console.log('  (Event log app detected)');
+                    // (Feature 3)
+                    // create and set mutation observer
+                    var $dropdown = $('#m_plcSiteSelector_siteSelector_pnlUpdate', $this.contents());
+                    if ($dropdown.length !== 0) {
+                        var observer = new MutationObserver(function (mutations) {
+                            // init helper on change
+                            SiteListDropdownHelper(hashId, $this);
+                        });
+                        observer.observe($dropdown[0], { childList: true });
+                    }
+                    // initialize helper
+                    SiteListDropdownHelper(hashId, $this);
+                }
+                break;
+            default:
+                console.log('! Unexpected hash passed to checkHash(): ' + hash);
                 break;
         }
     }
@@ -249,6 +396,7 @@ jQuery(function ($, undefined) {
         // add iframe load event listener (with capture) to body so we can see iframe load events otherwise not capturable by our $.on('load') listener below
         if ($body.length === 0) console.log('  ! Warning: Unexpected $body size');
         else $body[0].addEventListener('load', function (e) {
+            //console.log('realLoad', e);
             if (e.target.tagName === 'IFRAME') {
                 var tar = e.target;
                 var $this = $(tar);
@@ -256,11 +404,15 @@ jQuery(function ($, undefined) {
                 if (debugF) console.log('# aLTI realLoaded iframe; lvl[' + lvl + ']; ifid[' + ifid + ']');
                 if (debugF && debugV) console.log('  ', tar);
 
+                // recursively apply on triggered event
+                //applyLoadToIframes($('body', $this.contents()), lvl + 1, 'delayed');
+
                 // ensure things happen after iframes load
                 $this.ready(function () {
                     bruteForceLooperHelper();
                 });
 
+                // handle main iframe logic
                 if (ifid === 1) {
                     if (debugF) console.log('  (main iframe loaded); hash[' + window.location.hash + ']');
 
@@ -276,39 +428,127 @@ jQuery(function ($, undefined) {
                         if (enableCurrentSiteButtonHelperExtension && $('#m_pt_headTitle', $children).text().trim() === 'Select site') {
                             if (debugF) console.log('    (in "Select site" modal)');
 
-                            // add our button next to search and bind the click event to it
-                            $('#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell', $children)
-                                .prepend('<button type="button" name="searchCurrentSite" value="Current Site" id="searchCurrentSite" class="btn btn-primary">Current Site</button>')
-                                .on('click', 'button', function (e) {
-                                if ($(this).attr('id') === 'searchCurrentSite') {
-                                    if (debugF) console.log('    "Current Site" button clicked in "Select site" dialog');
+                            // adds our 'current site' or 'reset' button next to search and binds the click event to it
+                            var addButton = function (a) {
+                                var $contents = $this.contents();
+                                //console.log('addButton', a);
 
-                                    // insert name of current site into the 'Name' input
-                                    $('#m_c_selectionDialog_txtSearch', $children).val($('#m_c_layoutElem_h_Header_ss_pnlSelector .dropdown').text());
+                                // push selected site name (from normal table listing) to our lastSelectedSites array
+                                $('#m_c_selectionDialog_uniGrid_v', $this.contents()).on('click', '.SelectableItem', function (e) {
+                                    //console.log(e.target.textContent, lastSelectedSites);
+                                    lastSelectedSites.push(e.target.textContent);
+                                });
 
-                                    // click Search
-                                    $('#m_c_selectionDialog_btnSearch', $children).click();
+                                var nameVal = $('#m_c_selectionDialog_txtSearch', $contents).val();
+                                // if name field is current site
+                                //   select the site
+                                if (nameVal === currentSiteName() || nameVal === lastSelectedSite) {
+                                    $('#m_c_selectionDialog_uniGrid_v tr:first-child .SelectableItem', $contents).click();
                                 }
-                            });
+                                // otherwise, add the buttons
+                                else {
+                                    var $buttonRow = $('#m_c_selectionDialog_pnlSearch .filter-form-buttons-cell', $contents).css('padding-right', '4px');
+                                    // if name field is not current site
+                                    //   add current site button and attach click event
+                                    if (nameVal !== currentSiteName()) {
+                                        $buttonRow
+                                            .prepend('<button type="button" value="Current Site" id="searchCurrentSite" class="btn btn-secondary" style="margin-right:4px">Current Site</button>')
+                                            .on('click', 'button#searchCurrentSite', function () {
+                                            if (debugF) console.log('    "Current Site" button clicked in "Select site" dialog');
+
+                                            // insert name of current site into the 'Name' input
+                                            $('#m_c_selectionDialog_txtSearch', $contents).val(currentSiteName());
+
+                                            // click Search
+                                            $('#m_c_selectionDialog_btnSearch', $contents).click();
+                                        });
+                                    }
+                                    // and if name field is not empty
+                                    //   add reset button and attach click event
+                                    if (nameVal.length !== 0) {
+                                        $buttonRow
+                                            .prepend('<button type="button" value="Reset" id="resetName" class="btn btn-default" style="margin-right:4px">Reset</button>')
+                                            .on('click', 'button#resetName', function () {
+                                            if (debugF) console.log('    "Reset" button clicked in "Select site" dialog');
+
+                                            // insert name of current site into the 'Name' input
+                                            $('#m_c_selectionDialog_txtSearch', $contents).val('');
+
+                                            // click Search
+                                            $('#m_c_selectionDialog_btnSearch', $contents).click();
+                                        });
+                                    }
+                                }
+                            };
+
+                            // adds our last selected sites to the table html
+                            var lastSelectedHTML = function () {
+                                var itemsPerPage = $('#m_c_selectionDialog_uniGrid_p_drpPageSize', $children).val() || 10;
+                                var html = '';
+                                // build html table rows
+                                for (var len = lastSelectedSites.length, i = len - 1, max = Math.min(len, itemsPerPage), count = 0, seen = [], v; count < max; --i, ++count) {
+                                    if (i < 0) break;
+                                    v = lastSelectedSites[i];
+                                    // remove and skip duplicates
+                                    if (~seen.indexOf(v)) {
+                                        lastSelectedSites.splice(i, 1);
+                                        continue;
+                                    }
+                                    seen.push(v);
+                                    html += '<tr><td><div class="SelectableItem">' + lastSelectedSites[i] + '</div></td></tr>';
+                                }
+                                return html;
+                            };
+
+                            // inject last selected sites table
+                            var addLastSelectedSites = function (a) {
+                                //console.log('addLastSelectedSites', a);
+                                if (lastSelectedSites.length > 0) {
+                                    // generate and inject table HTML
+                                    var divContent = $('#divContent', $children)[0];
+                                    var scrollbarDiff = divContent.offsetWidth - divContent.clientWidth;
+                                    $('#m_c_selectionDialog_pnlUpdate', $children).prepend('<div id="lastSitesSelect" style="background:#fff;width:' + (275 - scrollbarDiff) + 'px;position:absolute;right:0;border-left:1px solid #e5e5e5;overflow:hidden;"><table class="table" style="margin-bottom:0"><thead><tr><th>Last selected sites</th></tr></thead><tbody>' + lastSelectedHTML() + '</tbody></table></div>');
+
+                                    // attach click events
+                                    var $contents = $this.contents();
+                                    $('#lastSitesSelect', $contents).on('click', 'div.SelectableItem', function () {
+                                        if (debugF) console.log('    "Site" item clicked in "Select site" dialog');
+
+                                        // record name of selected site to use for addButton() (so we can auto select it once it gets filtered)
+                                        lastSelectedSite = $(this).text();
+
+                                        // insert name of current site into the 'Name' input
+                                        $('#m_c_selectionDialog_txtSearch', $contents).val(lastSelectedSite);
+
+                                        // click Search
+                                        $('#m_c_selectionDialog_btnSearch', $contents).click();
+                                    });
+                                }
+                            };
+
+                            // create and set mutation observer
+                            var $panel = $('#m_c_selectionDialog_pnlUpdate', $children);
+                            if ($panel.length !== 0) {
+                                var observer = new MutationObserver(function (mutations) {
+                                    //console.log(mutations);
+                                    if (mutations[0].addedNodes.length > 1) {
+                                        addButton(1);
+                                        addLastSelectedSites(1);
+                                    }
+                                });
+                                observer.observe($panel[0], { childList: true });
+                            }
+
+                            // add current site button
+                            addButton(0);
+
+                            // inject last selected table
+                            addLastSelectedSites(0);
                         }
                     }
                 }
-                // only run the following code while in the Settings app (by checking the hash)
-                else if (hash === '#02cded6b-aa35-4a82-a5f3-e5a5fe82e58b') {
-                    if (ifid === 1) {
-                        if (debugF) console.log('  (Settings app detected)');
-
-                        // Feature 3 => top left of Settings app
-                        SiteListDropdownHelper(1, $this);
-                    }
-                }
-                // only run the following code while in the Widgets app (by checking the hash)
-                else if (hash === '#ef314079-8dbb-4273-bed1-a4af14d0cbf7') {
-                    if (ifid === 3) {
-                        // Feature 3 => Widget Security tab
-                        SiteListDropdownHelper(2, $this);
-                    }
-                }
+                // perform logic based on hash
+                else checkHash(0, hash, $this, ifid);
             }
         }, true);
 
@@ -318,14 +558,17 @@ jQuery(function ($, undefined) {
             $v = $(iframeArr[i]);
             if (debugF) console.log('  '.repeat(lvl) + '(applying to iframe); ifid[' + iframeMap[$v.attr('id')] + ']');
 
+            // recursively apply immediately
             applyLoadToIframes($('body', $v.contents()), lvl + 1, 'instant');
 
+            // attach event handler to current iframe
             $v.on('fauxLoad', function (e) {
                 var $this = $(this);
                 var currentIframeAttrID = $this.attr('id');
                 var ifid = iframeMap[currentIframeAttrID] || currentIframeAttrID;
                 if (debugF) console.log('# aLTI fauxLoaded iframe; lvl[' + lvl + ']; ifid[' + ifid + ']');
 
+                // recursively apply on triggered event
                 applyLoadToIframes($('body', $v.contents()), lvl + 1, 'delayed');
 
                 // ensure things happen after iframes load
@@ -340,53 +583,17 @@ jQuery(function ($, undefined) {
                     hash = window.location.hash; // update hash of window at every iframe load
                 }
 
-                // only run the following code while in the Sites app (by checking the hash)
-                if (hash === '#5576826f-328b-4b53-9f4b-e877fabd4d63' && ifid === 1) {
-                    if (debugF) console.log('  (Sites app detected)');
-                    /// Enable ability to quickly search for the current site in the site list
-                    if (enableCurrentSiteButtonHelper) {
-                        // drill down to the button group through any iframes:
-                        //   1) iframe#m_c_layoutElem_cmsdesktop (already in)
-                        // then add our button next to reset/search and bind the click event to it
-                        var $contents = $this.contents();
-                        $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_pnlForm .form-group-buttons', $contents)
-                            .prepend('<button type="button" name="searchCurrentSite" value="Current Site" id="searchCurrentSite" class="btn btn-primary">Current Site</button>')
-                            .on('click', 'button', function (e) {
-                            if ($(this).attr('id') === 'searchCurrentSite') {
-                                if (debugF) console.log('    Current Site button clicked');
-
-                                // set 'Site name' value to 0 (Contains)
-                                $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_SiteDisplayName_drpOperator', $contents).val('0').change();
-
-                                // insert name of current site into the 'Site name' input
-                                $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_SiteDisplayName_txtText', $contents).val($('#m_c_layoutElem_h_Header_ss_pnlSelector .dropdown').text());
-
-                                // click Search (set a timeout because an error was occurring (since there's a timeout on the select's onchange event, a race condition might've been occurring))
-                                setTimeout(function () {
-                                    $('#m_c_plc_lt_ctl01_Listing_gridElem_filterForm_btnShow', $contents).click();
-                                }, 0);
-                            }
-                        });
-                    }
-                    else if (debugV) {
-                        console.log('  ! CurrentSiteButtonHelper disabled');
-                    }
-                }
-                // only run the following code while in the Widgets app (by checking the hash)
-                else if (hash === '#ef314079-8dbb-4273-bed1-a4af14d0cbf7') {
-                    if (ifid === 1) {
-                        if (debugF) console.log('  (Widgets app detected)');
-                    }
-                    else if (ifid === 3) {
-                        // Feature 3 => Widget Security tab
-                        SiteListDropdownHelper(2, $this);
-                    }
-                }
-                // only run the following code while in the Settings app (by checking the hash)
-                else if (hash === '#02cded6b-aa35-4a82-a5f3-e5a5fe82e58b' && ifid === 1) {
-                    console.log('  ! Why was Settings app detected?');
-                }
+                // perform logic based on hash
+                checkHash(1, hash, $this, ifid);
             });
+
+            // attach regular event handler to current iframe  (for testing reasons)
+            /*$v.on('load', function (e) {
+                var $this = $(this);
+                var currentIframeAttrID = $this.attr('id');
+                var ifid = iframeMap[currentIframeAttrID] || currentIframeAttrID;
+                if (debugF) console.log('# aLTI testLoaded iframe; lvl[' + lvl + ']; ifid[' + ifid + ']');
+            });*/
         }
     }
 
