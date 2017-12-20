@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Kentico Admin Tools
 // @namespace    http://jaredgotte.com
-// @version      2.9
+// @version      3.0
 // @description  Helps with working in the Kentico /admin interface. Depends on the Kentico Admin Tools Helper userscript. List of compatible Kentico versions can be found in the `listOfCompatibleKenticoVersions` variable defined below.
 // @author       Jared Gotte
-// @match        http://*.tamu.edu/Admin/*
-// @match        https://*.tamu.edu/Admin/*
+// @match        *.tamu.edu/Admin/*
+// @match        *localhost*/Admin/*
+// @match        *127.0.0.1*/Admin/*
 // @grant        none
 // @require      http://code.jquery.com/jquery-3.2.1.min.js
 // @run-at       document-start
@@ -54,11 +55,11 @@
 
 /*
 # Changelog:
-  1.0 | Default features (clicking outside of modal closes it, add `more sites` to the top of dropdown lists)
-  1.1 | Tidied up structure, added more areas where `more sites` can appear at the top, paved way of being able to drill down into iframes
-  1.2 | Added 'middle button click to open up breadcrumbs in new tab' feature, added Kentico version detection so that it only runs when we want it
-  1.3 | Added 'quickly search for current site in Sites app' feature
-  1.4 | Separated methods between Static and Dynamic regions (since navigating through the admin interface uses the same iframe instead of refreshing the page)
+  1.0 | * Default features (clicking outside of modal closes it, add `more sites` to the top of dropdown lists)
+  1.1 | * Tidied up structure, added more areas where `more sites` can appear at the top, paved way of being able to drill down into iframes
+  1.2 | * Added 'middle button click to open up breadcrumbs in new tab' feature, added Kentico version detection so that it only runs when we want it
+  1.3 | * Added 'quickly search for current site in Sites app' feature
+  1.4 | * Separated methods between Static and Dynamic regions (since navigating through the admin interface uses the same iframe instead of refreshing the page)
   2.0 | * Enabled ability to toggle on/off particular features
         * Added better iframe support
         * Added ability to remove Kentico's loader
@@ -88,6 +89,7 @@
             * Improved katSettings cookie setting logic (to support cross-tab changes and dealing with overriding variables)
   2.8 | * Adapted the "Select site" logic with the "Select sites" dialog
   2.9 | * Added support for Kentico 11.0
+  3.0 | * Added localhost support
 */
 
 jQuery(function ($, undefined) {

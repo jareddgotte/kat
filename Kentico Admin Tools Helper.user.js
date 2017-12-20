@@ -1,18 +1,20 @@
 // ==UserScript==
 // @name         Kentico Admin Tools Helper
 // @namespace    http://jaredgotte.com
-// @version      1.1
+// @version      1.2
 // @description  Helps with the Kentico Admin Tools by triggering faux load events for iframe pages
 // @author       Jared Gotte
-// @match        http://*.tamu.edu/CMSModules/AdminControls/Pages/UIPage.aspx*
-// @match        https://*.tamu.edu/CMSModules/AdminControls/Pages/UIPage.aspx*
+// @match        *.tamu.edu/CMSModules/AdminControls/Pages/UIPage.aspx*
+// @match        *localhost*/CMSModules/AdminControls/Pages/UIPage.aspx*
+// @match        *127.0.0.1*/CMSModules/AdminControls/Pages/UIPage.aspx*
 // @grant        none
 // ==/UserScript==
 
 /*
 # Changelog:
-  1.0 | Default features (checks frame depth, sends console.log info, dispatches fauxLoad event to frame element)
-  1.1 | Bug fixes/refactoring
+  1.0 | * Default features (checks frame depth, sends console.log info, dispatches fauxLoad event to frame element)
+  1.1 | * Bug fixes/refactoring
+  1.2 | * Added localhost support
 */
 
 (function() {
